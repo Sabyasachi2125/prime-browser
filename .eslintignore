@@ -1,0 +1,4 @@
+test/unit/**
+test/e2e/**
+src/helper/pages/**
+src/helper/pdfjs/**
