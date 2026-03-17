@@ -1,16 +1,16 @@
-# Lulumi-browser [![Dependencies Status](https://david-dm.org/LulumiProject/lulumi-browser/status.svg)](https://david-dm.org/LulumiProject/lulumi-browser) [![devDependencies Status](https://david-dm.org/LulumiProject/lulumi-browser/dev-status.svg)](https://david-dm.org/LulumiProject/lulumi-browser?type=dev)
+# Prime Browser
 
-> Lulumi-browser is a lightweight browser coded with Vue.js 2 and Electron.
+> Prime Browser is a lightweight browser built with Vue.js 2 and Electron.
 
 <p align="center">
-  <img alt="Lulumi-browser" src="https://i.imgur.com/5mO19u7.jpg" width="700px">
+  <img alt="Prime Browser" src="https://i.imgur.com/5mO19u7.jpg" width="700px">
 </p>
 
-If you like this and would like to support it. Check out my [patreon page](https://www.patreon.com/boik) :)<br>And don't forget to check out my [repos](https://github.com/qazbnm456) 🐾 or say *hi* on my [Twitter](https://twitter.com/qazbnm456) as well!
+Prime Browser is an Electron-Vue browser project focused on a lightweight desktop browsing experience with a customizable new tab dashboard.
 
 ## Build Setup
 
-``` bash
+```bash
 # install dependencies
 $ yarn install --ignore-engines
 
@@ -39,9 +39,9 @@ $ yarn run lint:fix
 $ yarn run test
 ```
 
-## API support (experimental)
+## API Support
 
-- https://github.com/LulumiProject/lulumi-browser/issues/19
+- API integration support can be implemented in the Electron main process using secure IPC bridges.
 
 ## Code of Conduct
 
@@ -49,4 +49,4 @@ Please note that this project is released with a [Contributor Code of Conduct](c
 
 ---
 
-This project was generated with [electron-vue](https://github.com/SimulatedGREG/electron-vue)@[1c165f7](https://github.com/SimulatedGREG/electron-vue/commit/1c165f7c5e56edaf48be0fbb70838a1af26bb015) and developed by [@qazbnm456](https://github.com/qazbnm456).
+This project was generated with [electron-vue](https://github.com/SimulatedGREG/electron-vue)@[1c165f7](https://github.com/SimulatedGREG/electron-vue/commit/1c165f7c5e56edaf48be0fbb70838a1af26bb015) and has been rebranded as Prime Browser.
