@@ -7,8 +7,6 @@
 
 /* eslint-disable no-console */
 
-const { app } = require('electron');
-
 if (typeof process.env.NODE_ENV === 'string') {
   // we don't have to reassign the value to `process.env.NODE_ENV`
   // since above webpack 4, the value has been set automatically
@@ -17,12 +15,6 @@ if (typeof process.env.NODE_ENV === 'string') {
   // Set environment for development
   process.env.NODE_ENV = 'development';
 }
-
-app.on('browser-window-created', (event, window) => {
-  window.webContents.once('dom-ready', () => {
-    window.webContents.openDevTools({ mode: 'bottom', active: false });
-  });
-});
 
 // Install `vue-devtools`
 require('electron').app.whenReady().then(() => {

@@ -268,6 +268,7 @@ let preloadsConfig = {
   name: 'preloads',
   devtool: 'cheap-module-source-map',
   entry: {
+    'preloads/main-preload': path.resolve(__dirname, '../src/preloads/main-preload.ts'),
     'webview-preload': path.join(__dirname, '../src/preloads/webview-preload.ts'),
     'extension-preload': path.join(__dirname, '../src/preloads/extension-preload.ts'),
     'popup-preload': path.join(__dirname, '../src/preloads/popup-preload.ts')
@@ -288,7 +289,7 @@ let preloadsConfig = {
             transpileOnly: true
           }
         },
-        include: [ path.join(__dirname, '../src/preload'), path.join(__dirname, '../src/renderer/api') ],
+        include: [ path.join(__dirname, '../src/preloads'), path.join(__dirname, '../src/renderer/api') ],
         exclude: /node_modules/
       },
       {

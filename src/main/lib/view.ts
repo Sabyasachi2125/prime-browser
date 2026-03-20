@@ -21,13 +21,14 @@ export default class View {
 
   public constructor(window: Electron.BrowserWindow, tabIndex: number, tabId: number, url: string) {
     this.preloadCachePath = '';
+    const bundledPreloadPath = path.resolve(constants.lulumiRootPath, 'dist', 'webview-preload.js');
     if (process.env.NODE_ENV === 'development') {
       this.fetchPreload(`${constants.lulumiPreloadPath}/webview-preload.js`);
     }
     this.browserView = new BrowserView({
       webPreferences: {
-        preload: (this.preloadCachePath.length === 0)
-          ? path.join(constants.lulumiPreloadPath, 'webview-preload.js')
+        preload: fs.existsSync(bundledPreloadPath)
+          ? bundledPreloadPath
           : this.preloadCachePath,
         enableRemoteModule: true,
         nodeIntegration: false,
@@ -176,6 +177,18 @@ export default class View {
         tabIndex: this.tabIndex,
       });
     });
+    this.webContents.on('before-input-event', (event, input) => {
+      const key = typeof input.key === 'string' ? input.key.toLowerCase() : '';
+      const isSummarizeShortcut = input.type === 'keyDown' &&
+        key === 's' &&
+        input.shift &&
+        (input.control || input.meta);
+
+      if (isSummarizeShortcut) {
+        event.preventDefault();
+        this.window.webContents.send('summarize-page');
+      }
+    });
     this.webContents.addListener('context-menu', (event, params) => {
       this.window.webContents.send('browser-view-context-menu', {
         event: { params },
@@ -194,7 +207,6 @@ export default class View {
       });
     });
 
-    this.window.setBrowserView(this.browserView);
     this.browserView.setAutoResize({
       width: true,
       height: true,

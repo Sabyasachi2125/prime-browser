@@ -17,9 +17,10 @@
     form.search-form(@submit.prevent="onSearchSubmit")
       .search-shell(:class="{ focused: isSearchFocused }")
         input.search-input(
+          ref="searchInput"
           v-model.trim="searchQuery"
           type="text"
-          placeholder="Search Google or enter URL"
+          placeholder=""
           aria-label="Smart search"
           @focus="isSearchFocused = true"
           @blur="isSearchFocused = false"
@@ -172,6 +173,13 @@ export default Vue.extend({
     }, 1000);
     this.loadWeather();
     this.initParticles();
+    this.$nextTick(() => {
+      const searchInput = this.$refs.searchInput as HTMLInputElement | undefined;
+      if (searchInput) {
+        searchInput.focus();
+        this.isSearchFocused = true;
+      }
+    });
   },
   beforeDestroy() {
     if (this.clockTimer) {
@@ -392,6 +400,31 @@ body {
   color: #14203a;
 }
 
+.theme-light .weather-widget,
+.theme-light .time-widget {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(137, 162, 214, 0.42);
+  box-shadow: 0 10px 26px rgba(87, 112, 168, 0.16);
+}
+
+.theme-light .dashboard {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(137, 162, 214, 0.4);
+  box-shadow: 0 24px 56px rgba(87, 112, 168, 0.18);
+}
+
+.theme-light .title,
+.theme-light .subtitle,
+.theme-light .quick-access h2,
+.theme-light .widget-title,
+.theme-light .widget-value,
+.theme-light .widget-sub,
+.theme-light .limit-note,
+.theme-light .card-title,
+.theme-light .card-url {
+  color: #14203a;
+}
+
 .theme-dark {
   background: linear-gradient(135deg, #070b16 0%, #111b36 100%);
 }
@@ -494,6 +527,15 @@ body {
   color: rgba(223, 233, 255, 0.78);
 }
 
+.theme-light .search-shell {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(137, 162, 214, 0.45);
+}
+
+.theme-light .search-input {
+  color: #14203a;
+}
+
 .theme-light .search-input::placeholder {
   color: rgba(31, 43, 70, 0.55);
 }
@@ -553,6 +595,26 @@ body {
 .theme-light .form-input {
   color: #1a2a4b;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.theme-light .small-btn,
+.theme-light .icon-btn,
+.theme-light .delete-btn {
+  color: #1a2a4b;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(137, 162, 214, 0.52);
+}
+
+.theme-light .card {
+  color: #14203a;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(137, 162, 214, 0.42);
+}
+
+.theme-light .ai-result {
+  color: #14203a;
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(137, 162, 214, 0.45);
 }
 
 .background-controls {

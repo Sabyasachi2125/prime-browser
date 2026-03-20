@@ -5,7 +5,6 @@ import { readdirSync, readFileSync, rename, writeFile } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-import * as https from 'https';
 import {
   app,
   BrowserWindow,
@@ -29,7 +28,7 @@ import autoUpdater from './lib/auto-updater';
 import constants from './constants';
 import menu from './lib/menu';
 import promisify from './lib/promisify';
-import fetch from './lib/fetch';
+import fetchText from './lib/fetch';
 import View from './lib/view';
 
 const { openProcessManager } = require('electron-process-manager');
@@ -205,6 +204,8 @@ function createWindow(options?: Electron.BrowserWindowConstructorOptions, callba
     minHeight: 500,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
+      preload: path.join(__dirname, '../dist/preloads/main-preload.js'),
+      enableRemoteModule: true,
       worldSafeExecuteJavaScript: true,
       contextIsolation: false,
       nodeIntegration: true,
@@ -218,13 +219,17 @@ function createWindow(options?: Electron.BrowserWindowConstructorOptions, callba
     /**
      * Initial window options
      */
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     mainWindow = new BrowserWindow(Object.assign({}, defaultOption, {
-      width: 1080,
-      height: 720,
+      width,
+      height,
     }));
   }
 
   mainWindow.loadURL(winURL);
+  mainWindow.webContents.once('dom-ready', () => {
+    console.log('Main renderer loaded. Preload should now expose window.api');
+  });
   for (let index = 1; index < 9; index += 1) {
     localshortcut.register(mainWindow, `CmdOrCtrl+${index}`, () => {
       mainWindow.webContents.send('tab-click', index - 1);
@@ -256,6 +261,9 @@ function createWindow(options?: Electron.BrowserWindowConstructorOptions, callba
   // register the shortcut for opening the tab closed recently
   localshortcut.register(mainWindow, 'CmdOrCtrl+Shift+T', () => {
     mainWindow.webContents.send('restore-recently-closed-tab');
+  });
+  localshortcut.register(mainWindow, 'CmdOrCtrl+Shift+S', () => {
+    mainWindow.webContents.send('summarize-page');
   });
 
   menu.init();
@@ -374,6 +382,12 @@ app.whenReady().then(() => {
         } else {
           globalObject.commandPalette.show();
           globalObject.commandPalette.webContents.send('send-focus');
+        }
+      });
+      globalShortcut.register('CmdOrCtrl+Shift+S', () => {
+        const focusedWindow = BrowserWindow.getFocusedWindow();
+        if (focusedWindow && focusedWindow.getTitle() !== 'command-palette') {
+          focusedWindow.webContents.send('summarize-page');
         }
       });
       globalObject.commandPalette.on('blur', () => globalObject.commandPalette.hide());
@@ -689,51 +703,58 @@ ipcMain.on('open-path', (event, itemPath) => {
   }
 });
 ipcMain.handle('ask-ai', async (event, query: string) => {
-  const key = process.env.OPENAI_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-  if (!key) {
-    return { error: 'Missing OPENAI_KEY' };
+  if (!apiKey) {
+    return {
+      error: {
+        message: 'Missing GEMINI_API_KEY',
+        type: 'config_error',
+      },
+    };
   }
 
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: query }],
-    });
-
-    const options = {
-      hostname: 'api.openai.com',
-      path: '/v1/chat/completions',
+  try {
+    const geminiUrl =
+      'https://generativelanguage.googleapis.com/v1beta/models/' +
+      `${model}:generateContent?key=${apiKey}`;
+    const data = await requestJson({
+      url: geminiUrl,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-        'Content-Length': Buffer.byteLength(data),
       },
-      timeout: 15000,
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: query }],
+          },
+        ],
+      }),
+      timeoutMs: 60000,
+    });
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    return {
+      choices: [
+        {
+          message: {
+            content: text,
+          },
+        },
+      ],
     };
-
-    const req = https.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => {
-        body += chunk;
-      });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch (err) {
-          reject(err);
-        }
-      });
-    });
-
-    req.on('timeout', () => {
-      req.destroy(new Error('timeout'));
-    });
-    req.on('error', reject);
-    req.write(data);
-    req.end();
-  });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    return {
+      error: {
+        message: message || 'Gemini API request failed',
+        type: 'network_error',
+      },
+    };
+  }
 });
 ipcMain.handle('api:get-weather', async (_, payload: any = {}) => {
   if (!process.env.WEATHER_KEY) {
@@ -783,44 +804,33 @@ ipcMain.handle('api:get-weather', async (_, payload: any = {}) => {
 });
 
 ipcMain.handle('api:ask-ai', async (_, payload: any = {}) => {
-  if (!process.env.OPENAI_KEY) {
-    return buildSecureError('AI service is not configured.');
-  }
-
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const query = typeof payload.query === 'string' ? payload.query.trim() : '';
-  if (!query) {
-    return buildSecureError('Query is required.');
+  if (!apiKey) {
+    return buildSecureError('Missing GEMINI_API_KEY');
   }
 
   try {
+    const geminiUrl =
+      'https://generativelanguage.googleapis.com/v1beta/models/' +
+      `${model}:generateContent?key=${apiKey}`;
     const data = await requestJson({
-      url: 'https://api.openai.com/v1/chat/completions',
+      url: geminiUrl,
       method: 'POST',
-      timeoutMs: 15000,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OPENAI_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: 'You are a concise browser assistant.',
-          },
-          {
-            role: 'user',
-            content: query,
+            parts: [{ text: query }],
           },
         ],
-        temperature: 0.4,
       }),
+      timeoutMs: 60000,
     });
-
-    const content = data && data.choices && data.choices[0] &&
-      data.choices[0].message && data.choices[0].message.content
-      ? String(data.choices[0].message.content)
-      : '';
+    const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     if (!content) {
       return buildSecureError('AI returned an empty response.');
@@ -833,7 +843,8 @@ ipcMain.handle('api:ask-ai', async (_, payload: any = {}) => {
       },
     };
   } catch (error) {
-    return buildSecureError('AI request failed.');
+    const message = error instanceof Error ? error.message : '';
+    return buildSecureError(message || 'Gemini API request failed');
   }
 });
 // load preference things into global when users accessing 'lulumi' protocol
@@ -1092,7 +1103,7 @@ ipcMain.on('register-local-commands', (event: Electron.IpcMainEvent) => {
 
 ipcMain.on('fetch-search-suggestions',
   (event: Electron.IpcMainEvent, url: string, timestamp: number) => {
-    fetch(url, (result) => {
+    fetchText(url, (result) => {
       event.sender.send(`fetch-search-suggestions-${timestamp}`, result);
     });
   });

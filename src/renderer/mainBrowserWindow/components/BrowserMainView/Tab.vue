@@ -38,6 +38,7 @@ import Event from '../../../api/event';
 export default class Tab extends Vue {
   hidden = true;
   requestId: number | null | void = null;
+  browserViewId = -1;
   onMessageEvent: Event = new Event();
 
   isActive: boolean;
@@ -88,7 +89,26 @@ export default class Tab extends Vue {
   */
 
   getBrowserView(): Electron.BrowserView {
-    return this.$electron.remote.BrowserView.fromId(this.tab.browserViewId);
+    const targetBrowserViewId = this.browserViewId !== -1
+      ? this.browserViewId
+      : this.tab.browserViewId;
+    return this.$electron.remote.BrowserView.fromId(targetBrowserViewId);
+  }
+
+  focusActiveBrowserView(): void {
+    const targetBrowserViewId = this.browserViewId !== -1
+      ? this.browserViewId
+      : this.tab.browserViewId;
+
+    if (!this.isActive || targetBrowserViewId === -1) {
+      return;
+    }
+
+    this.$electron.ipcRenderer.send('resize-browser-view', targetBrowserViewId);
+    this.$electron.ipcRenderer.send('focus-browser-view', {
+      browserViewId: targetBrowserViewId,
+      windowId: this.windowId,
+    });
   }
 
   @Watch('isActive')
@@ -99,12 +119,16 @@ export default class Tab extends Vue {
     }
     */
     if (active) {
-      this.$electron.ipcRenderer.send('resize-browser-view', this.tab.browserViewId);
-      this.$electron.ipcRenderer.send('focus-browser-view', {
-        browserViewId: this.tab.browserViewId,
-        windowId: this.windowId,
-      });
+      this.focusActiveBrowserView();
     }
+  }
+
+  @Watch('tab.browserViewId')
+  onBrowserViewIdChanged(): void {
+    if (this.tab.browserViewId !== -1) {
+      this.browserViewId = this.tab.browserViewId;
+    }
+    this.focusActiveBrowserView();
   }
 
   mounted(): void {
@@ -217,7 +241,9 @@ export default class Tab extends Vue {
   }
 
   beforeDestroy(): void {
-    this.$electron.ipcRenderer.send('destroy-browser-view', this.tab.browserViewId);
+    if (this.browserViewId !== -1) {
+      this.$electron.ipcRenderer.send('destroy-browser-view', this.browserViewId);
+    }
   }
 }
 </script>

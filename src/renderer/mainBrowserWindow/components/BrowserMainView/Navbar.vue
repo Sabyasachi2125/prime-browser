@@ -303,7 +303,7 @@ export default class Navbar extends Vue {
       this.value = this.tab.url;
       this.selectText();
     }
-    if (this.value === 'lulumi://about/#/newtab') {
+    if (this.isNewTabUrl(this.value)) {
       this.value = '';
       this.onNewElementParentClick();
     }
@@ -340,7 +340,7 @@ export default class Navbar extends Vue {
     if (this.tab.url === 'chrome://gpu/') {
       return '<div class="security-hint">lulumi://gpu</div>';
     }
-    if (this.tab.url === 'lulumi://about/#/newtab') {
+    if (this.isNewTabUrl(this.tab.url)) {
       return '<div class="security-hint">lulumi://about/newtab</div>';
     }
     if (this.tab.url.startsWith('lulumi://')) {
@@ -382,6 +382,12 @@ export default class Navbar extends Vue {
   chunk(r: any, j: number): any {
     // eslint-disable-next-line no-confusing-arrow
     return r.reduce((a, b, i, g) => !(i % j) ? a.concat([g.slice(i, i + j)]) : a, []);
+  }
+  isNewTabUrl(value: string): boolean {
+    return value === 'lulumi://about/#/newtab' ||
+      value === 'lulumi://about/newtab' ||
+      value.endsWith('/about.html#/newtab') ||
+      value.endsWith('/about/#/newtab');
   }
   escapePattern(pattern: string): string {
     return pattern.replace(/[\\^$+?.()|[\]{}]/g, '\\$&');
@@ -612,7 +618,7 @@ export default class Navbar extends Vue {
   }
   onChange(val: string): void {
     this.typing = true;
-    this.value = val;
+    this.value = typeof val === 'string' ? val : '';
     if (this.value.length === 0) {
       this.suggestionIndicator = true;
     }
@@ -802,9 +808,14 @@ export default class Navbar extends Vue {
       ipc.once(`fetch-search-suggestions-${timestamp}`, (event, result) => {
         if (result.ok) {
           const parsed = JSON.parse(result.body);
-          const returnedSuggestions = (parsed[1] !== undefined)
+          const results = (parsed && parsed[1] !== undefined)
             ? parsed[1]
-            : parsed.items;
+            : parsed && parsed.items;
+          const returnedSuggestions = Array.isArray(results) ? results : [];
+          if (!results || !Array.isArray(results)) {
+            cb(this.unique(suggestions));
+            return;
+          }
           returnedSuggestions.forEach((suggestion) => {
             suggestions.push({
               item: {

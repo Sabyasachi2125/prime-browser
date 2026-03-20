@@ -7,6 +7,28 @@ div
     #notification(v-show="showNotification")
       notification(:windowWebContentsId="windowWebContentsId",
                    :tabId="tab.id")
+  transition(name="ai-sidebar")
+    .summary-panel(v-show="showSummary && !isSummaryMinimized")
+      .summary-header
+        h3 AI Summary
+        .summary-actions
+          button.summary-header-btn(type="button" @click="minimizeSummaryPanel") -
+          button.summary-header-btn(type="button" @click="closeSummaryPanel") x
+      .summary-body
+        .summary-loading(v-if="isSummarizing")
+          .summary-spinner
+          span Summarizing...
+        .summary-content(v-else)
+          template(v-if="formattedSummaryItems.length > 0")
+            template(v-for="(item, index) in formattedSummaryItems")
+              h4.summary-heading(
+                v-if="item.type === 'heading'"
+                :key="`heading-${index}`"
+              ) {{ item.text }}
+              ul.summary-list(v-else-if="item.type === 'bullet'" :key="`bullet-${index}`")
+                li {{ item.text }}
+              p.summary-paragraph(v-else :key="`paragraph-${index}`") {{ item.text }}
+          p.summary-empty(v-else) No summary available yet.
   swipe-arrow
   tab(v-for="(tab, index) in tabs",
       :isActive="index === currentTabIndex",
@@ -26,7 +48,7 @@ div
 <script lang="ts">
 /* global Electron, Lulumi */
 
-import { Component, Vue } from 'vue-property-decorator';
+import { Component, Vue, Watch } from 'vue-property-decorator';
 
 import * as path from 'path';
 import * as urlPackage from 'url';
@@ -47,6 +69,32 @@ import imageUtil from '../../lib/image-util';
 import ExtensionService from '../../api/extension-service';
 import Event from '../../api/event';
 
+interface AIResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: string | {
+    message?: string;
+    type?: string;
+    code?: string;
+  };
+}
+
+interface SummaryItem {
+  type: 'heading' | 'bullet' | 'paragraph';
+  text: string;
+}
+
+declare global {
+  interface Window {
+    api?: {
+      askAI?: (query: string) => Promise<AIResponse>;
+    };
+  }
+}
+
 @Component({
   name: 'browser-main',
   components: {
@@ -60,6 +108,7 @@ import Event from '../../api/event';
   },
 })
 export default class BrowserMainView extends Vue {
+  static readonly SUMMARY_PANEL_WIDTH = 350;
   windowId = 0;
   windowWebContentsId = 0;
   showNotification = false;
@@ -72,8 +121,15 @@ export default class BrowserMainView extends Vue {
   hnorm = 0;
   startTime = 0;
   showDownloadBar = false;
+  summary = '';
+  showSummary = false;
+  isSummaryMinimized = false;
+  isSummarizing = false;
   extensionService: ExtensionService;
   contextMenus: any = {};
+  summarizeShortcutHandler: ((event: KeyboardEvent) => void) | null = null;
+  updateOnlineStatusHandler: (() => void) | null = null;
+  resizeBrowserViewHandler: (() => void) | null = null;
   onCommandEvent: Event = new Event();
   onUpdatedEvent: Event = new Event();
   onCreatedEvent: Event = new Event();
@@ -86,6 +142,45 @@ export default class BrowserMainView extends Vue {
   onCommitted: Event = new Event();
   onCompleted: Event = new Event();
   onDOMContentLoaded: Event = new Event();
+  get formattedSummaryItems(): SummaryItem[] {
+    return this.summary
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const normalized = line.replace(/\*\*/g, '').trim();
+
+        if (normalized.startsWith('#')) {
+          return {
+            type: 'heading',
+            text: normalized.replace(/^#+\s*/, ''),
+          };
+        }
+
+        const startsWithBullet = normalized.startsWith('-') ||
+          normalized.startsWith('*') ||
+          normalized.startsWith('•');
+
+        if (startsWithBullet) {
+          return {
+            type: 'bullet',
+            text: normalized.replace(/^[-*•]\s*/, ''),
+          };
+        }
+
+        if (normalized.endsWith(':') && normalized.length < 90) {
+          return {
+            type: 'heading',
+            text: normalized.slice(0, -1),
+          };
+        }
+
+        return {
+          type: 'paragraph',
+          text: normalized,
+        };
+      });
+  }
 
   get dummyTabObject(): Lulumi.Store.TabObject {
     return this.$store.getters.tabConfig.dummyTabObject;
@@ -195,6 +290,224 @@ export default class BrowserMainView extends Vue {
       return nav.clientHeight;
     }
     return 0;
+  }
+  getSummaryReservedWidth(): number {
+    return this.showSummary && !this.isSummaryMinimized ? BrowserMainView.SUMMARY_PANEL_WIDTH : 0;
+  }
+  applyActiveBrowserViewLayout(): void {
+    if (this.htmlFullscreen) {
+      return;
+    }
+
+    let view: Electron.BrowserView;
+
+    try {
+      view = this.getBrowserView();
+    } catch (error) {
+      return;
+    }
+
+    if (!view || !view.webContents || view.webContents.isDestroyed()) {
+      return;
+    }
+
+    const browserWindow = this.$electron.remote.BrowserWindow.fromBrowserView(view);
+    if (!browserWindow) {
+      return;
+    }
+
+    const { width, height } = browserWindow.getContentBounds();
+    const navAndStatusBarHeight = this.getNavAndStatusBarHeight();
+    const reservedWidth = this.getSummaryReservedWidth();
+
+    view.setBounds({
+      x: 0,
+      y: navAndStatusBarHeight,
+      width: Math.max(320, width - reservedWidth),
+      height: Math.max(0, height - navAndStatusBarHeight),
+    });
+  }
+  closeSummaryPanel(): void {
+    this.summary = '';
+    this.showSummary = false;
+    this.isSummaryMinimized = false;
+    this.isSummarizing = false;
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
+  }
+  minimizeSummaryPanel(): void {
+    this.isSummaryMinimized = true;
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
+  }
+  async extractPageText(view: Electron.BrowserView): Promise<string> {
+    try {
+      const text = await view.webContents.executeJavaScript(`
+        (() => {
+          const root = document.querySelector('article') ||
+            document.querySelector('main') ||
+            document.querySelector('[role="main"]') ||
+            document.body;
+
+          if (!root) {
+            return '';
+          }
+
+          const clone = root.cloneNode(true);
+          const removableSelectors = [
+            'nav',
+            'header',
+            'footer',
+            'aside',
+            'script',
+            'style',
+            'noscript',
+            'form',
+            'button',
+            '[aria-hidden="true"]',
+            '.sidebar',
+            '.menu',
+            '.navigation',
+            '.breadcrumbs',
+            '.related',
+            '.recommend',
+            '.share',
+            '.social',
+            '.advertisement',
+            '.ad',
+          ];
+
+          removableSelectors.forEach((selector) => {
+            clone.querySelectorAll(selector).forEach((node) => node.remove());
+          });
+
+          const blocks = Array.from(
+            clone.querySelectorAll('h1, h2, h3, p, li, blockquote, pre')
+          )
+            .map((node) => (node.innerText || '').replace(/\\s+/g, ' ').trim())
+            .filter((value) => value.length > 30)
+            .filter((value, index, array) => array.indexOf(value) === index);
+
+          if (blocks.length === 0) {
+            const fallback = (clone.innerText || '').replace(/\\s+/g, ' ').trim();
+            return fallback.slice(0, 4500);
+          }
+
+          return blocks.join('\\n')
+            .slice(0, 4500);
+        })()
+      `, true);
+
+      return typeof text === 'string' ? text : '';
+    } catch (error) {
+      return '';
+    }
+  }
+  async summarizePage(): Promise<void> {
+    if (this.isSummarizing) {
+      return;
+    }
+
+    if (this.showSummary && this.isSummaryMinimized && this.summary) {
+      this.isSummaryMinimized = false;
+      this.$nextTick(() => this.applyActiveBrowserViewLayout());
+      return;
+    }
+
+    let view: Electron.BrowserView;
+
+    try {
+      view = this.getBrowserView();
+    } catch (error) {
+      this.summary = 'Unable to access the active page';
+      this.showSummary = true;
+      return;
+    }
+
+    if (!view || !view.webContents) {
+      this.summary = 'Unable to access the active page';
+      this.showSummary = true;
+      return;
+    }
+
+    const pageText = await this.extractPageText(view);
+
+    this.showSummary = true;
+    this.isSummaryMinimized = false;
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
+    if (!pageText.trim()) {
+      this.summary = 'Unable to extract page content';
+      return;
+    }
+
+    if (!window.api || !window.api.askAI) {
+      this.summary = 'AI service is unavailable';
+      return;
+    }
+
+    const prompt = `Summarize only the article or main reading content below.
+Ignore site-wide descriptions, branding, menus, navigation,
+related links, and promotional boilerplate.
+
+Return:
+- 5 concise bullet points about the actual content on this page
+- 1 short takeaway sentence
+
+Page content:
+${pageText}`;
+
+    this.isSummarizing = true;
+    this.summary = 'Summarizing...';
+
+    try {
+      const response = await window.api.askAI(prompt);
+      if (!response) {
+        this.summary = 'No response received from the AI service';
+        return;
+      }
+
+      if (response && response.error) {
+        const errorType = typeof response.error === 'object' && response.error
+          ? response.error.type
+          : '';
+        const errorMessage = typeof response.error === 'object' && response.error
+          ? response.error.message
+          : response.error;
+
+        if (errorType === 'insufficient_quota') {
+          this.summary = 'AI quota exceeded. Please check your OpenAI billing.';
+          return;
+        }
+
+        this.summary = errorMessage || 'AI request failed';
+        return;
+      }
+
+      this.summary =
+        response && response.choices &&
+        response.choices[0] &&
+        response.choices[0].message &&
+        response.choices[0].message.content
+          ? response.choices[0].message.content
+          : 'No summary available';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('network') || message.includes('fetch') || message.includes('timeout')) {
+        this.summary = 'Network error while contacting the AI service';
+      } else {
+        this.summary = 'AI request failed';
+      }
+    } finally {
+      this.isSummarizing = false;
+    }
+  }
+
+  @Watch('currentTabIndex')
+  onCurrentTabIndexChanged(): void {
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
+  }
+
+  @Watch('showNotification')
+  onShowNotificationChanged(): void {
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
   }
   async historyMappings(): Promise<any> {
     const out: any = {};
@@ -1068,6 +1381,14 @@ export default class BrowserMainView extends Vue {
     }
     const tabObject: Lulumi.Store.TabObject = this.getTabObject(usedTabIndex);
     if (tabObject) {
+      if (this.tabs.length === 1) {
+        const currentWindow: Electron.BrowserWindow | null =
+          this.$electron.remote.BrowserWindow.fromId(this.windowId);
+        if (currentWindow) {
+          currentWindow.close();
+        }
+        return;
+      }
       const tabId: number = tabObject.id;
       this.onRemovedEvent.emit(tabObject);
       this.$store.dispatch('closeTab', {
@@ -1948,6 +2269,9 @@ export default class BrowserMainView extends Vue {
         (this.historyMenuItem[0] as any).click();
       }
     });
+    ipc.on('summarize-page', () => {
+      this.summarizePage();
+    });
     ipc.on('tab-close', () => {
       if (this.currentTabIndex !== undefined) {
         this.onTabClose(this.currentTabIndex);
@@ -2082,13 +2406,36 @@ export default class BrowserMainView extends Vue {
     });
 
     // https://github.com/electron/electron/blob/master/docs/tutorial/online-offline-events.md
-    const updateOnlineStatus = () => {
+    this.summarizeShortcutHandler = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        this.summarizePage();
+      }
+    };
+    window.addEventListener('keydown', this.summarizeShortcutHandler);
+
+    this.updateOnlineStatusHandler = () => {
       ipc.send('online-status-changed', navigator.onLine);
     };
 
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    updateOnlineStatus();
+    window.addEventListener('online', this.updateOnlineStatusHandler);
+    window.addEventListener('offline', this.updateOnlineStatusHandler);
+    this.updateOnlineStatusHandler();
+    this.resizeBrowserViewHandler = () => this.applyActiveBrowserViewLayout();
+    window.addEventListener('resize', this.resizeBrowserViewHandler);
+    this.$nextTick(() => this.applyActiveBrowserViewLayout());
+  }
+  beforeDestroy(): void {
+    if (this.summarizeShortcutHandler) {
+      window.removeEventListener('keydown', this.summarizeShortcutHandler);
+    }
+    if (this.updateOnlineStatusHandler) {
+      window.removeEventListener('online', this.updateOnlineStatusHandler);
+      window.removeEventListener('offline', this.updateOnlineStatusHandler);
+    }
+    if (this.resizeBrowserViewHandler) {
+      window.removeEventListener('resize', this.resizeBrowserViewHandler);
+    }
   }
 }
 </script>
@@ -2125,6 +2472,132 @@ html {
 
 #nav {
   width: 100vw;
+  position: relative;
+}
+
+.summary-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 350px;
+  max-width: 100vw;
+  height: 100%;
+  background: #1e1e2f;
+  color: #fff;
+  z-index: 10000;
+  box-shadow: -5px 0 20px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-sidebar-enter-active, .ai-sidebar-leave-active {
+  transition: transform 0.3s ease;
+}
+
+.ai-sidebar-enter, .ai-sidebar-leave-to {
+  transform: translateX(100%);
+}
+
+.summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.summary-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summary-header-btn {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: background 0.2s ease;
+}
+
+.summary-header-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.summary-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.summary-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.summary-content {
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.summary-heading {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.summary-list {
+  margin: 0 0 12px 18px;
+  padding: 0;
+}
+
+.summary-list li {
+  margin-bottom: 8px;
+}
+
+.summary-paragraph,
+.summary-empty {
+  margin: 0 0 12px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .summary-panel {
+    width: min(350px, 100vw);
+  }
 }
 
 #footer {

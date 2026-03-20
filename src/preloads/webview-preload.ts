@@ -139,10 +139,11 @@ const moduleTmp = module;
 process.once('loaded', () => {
   contextBridge.exposeInMainWorld('api', {
     getWeather: (payload: any) => invokeWithTimeout('api:get-weather', payload, 10000),
-    askAI: (query: string) => invokeWithTimeout('ask-ai', query, 15000),
+    askAI: (query: string) => ipcRenderer.invoke('ask-ai', query),
   });
   if (document.location) {
     if (document.location.href.startsWith('lulumi://') ||
+      document.location.href.startsWith('file://') ||
       (process.env.NODE_ENV === 'development' && document.location.href.startsWith('http://localhost:'))) {
       contextBridge.exposeInMainWorld('data', {
         about: ipcRenderer.sendSync('lulumi-scheme-loaded', document.location.href),

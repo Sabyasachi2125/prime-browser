@@ -150,80 +150,36 @@ const mutations = {
         Vue.set(stateContext.tabs[stateContext.tabs.length - 1], 'active', true);
         Vue.set(stateContext.currentTabIndexes, windowId, 0);
       } else {
-        // find the nearest adjacent tab to make active
-        // eslint-disable-next-line max-len
-        const tabsMapping = (mappedTabs: Lulumi.Store.TabObject[], tabsOrder: number[]): number[] => {
-          const newOrder: number[] = [];
-          for (let index = 0; index < mappedTabs.length; index += 1) {
-            if (tabsOrder) {
-              newOrder[index] = !tabsOrder.includes(index)
-                ? index
-                : tabsOrder.indexOf(index);
-            } else {
-              newOrder[index] = index;
-            }
-          }
-          return newOrder;
-        };
-        const mapping = tabsMapping(tabs, stateContext.tabsOrder[windowId]);
         const currentTabIndex = stateContext.currentTabIndexes[windowId];
+        let nextTabIndex = currentTabIndex;
         if (currentTabIndex === tabIndex) {
-          Vue.delete(stateContext.tabs, tabsIndex);
-          for (let i = mapping[tabIndex] + 1; i < tabs.length; i += 1) {
-            if (tabs[mapping.indexOf(i)]) {
-              if (mapping.indexOf(i) > tabIndex) {
-                Vue.set(stateContext.currentTabIndexes, windowId, mapping.indexOf(i) - 1);
-                const index: number =
-                  stateContext.tabs.findIndex(tab => (
-                    tab.id === stateContext.tabs[mapping.indexOf(i) - 1].id
-                  ));
-                Vue.set(stateContext.tabs[index], 'highlighted', true);
-                Vue.set(stateContext.tabs[index], 'active', true);
-              } else {
-                Vue.set(stateContext.currentTabIndexes, windowId, mapping.indexOf(i));
-                const index: number =
-                  stateContext.tabs.findIndex(tab => (
-                    tab.id === stateContext.tabs[mapping.indexOf(i)].id
-                  ));
-                Vue.set(stateContext.tabs[index], 'highlighted', true);
-                Vue.set(stateContext.tabs[index], 'active', true);
-              }
-              return;
-            }
-          }
-          for (let i = mapping[tabIndex] - 1; i >= 0; i -= 1) {
-            if (tabs[mapping.indexOf(i)]) {
-              if (mapping.indexOf(i) > tabIndex) {
-                Vue.set(stateContext.currentTabIndexes, windowId, mapping.indexOf(i) - 1);
-                const index: number =
-                  stateContext.tabs.findIndex(tab => (
-                    tab.id === stateContext.tabs[mapping.indexOf(i) - 1].id
-                  ));
-                Vue.set(stateContext.tabs[index], 'highlighted', true);
-                Vue.set(stateContext.tabs[index], 'active', true);
-              } else {
-                Vue.set(stateContext.currentTabIndexes, windowId, mapping.indexOf(i));
-                const index: number =
-                  stateContext.tabs.findIndex(tab => (
-                    tab.id === stateContext.tabs[mapping.indexOf(i)].id
-                  ));
-                Vue.set(stateContext.tabs[index], 'highlighted', true);
-                Vue.set(stateContext.tabs[index], 'active', true);
-              }
-              return;
-            }
-          }
+          nextTabIndex = Math.min(tabIndex, tabs.length - 2);
         } else if (currentTabIndex > tabIndex) {
-          Vue.delete(stateContext.tabs, tabsIndex);
-          Vue.set(stateContext.currentTabIndexes, windowId, currentTabIndex - 1);
-          const index: number =
-            stateContext.tabs.findIndex(tab => (
-              tab.id === stateContext.tabs[currentTabIndex - 1].id
-            ));
-          Vue.set(stateContext.tabs[index], 'highlighted', true);
-          Vue.set(stateContext.tabs[index], 'active', true);
-        } else {
-          Vue.delete(stateContext.tabs, tabsIndex);
+          nextTabIndex = currentTabIndex - 1;
+        }
+
+        Vue.delete(stateContext.tabs, tabsIndex);
+
+        if (stateContext.tabsOrder[windowId]) {
+          const nextTabsOrder = stateContext.tabsOrder[windowId]
+            .filter(index => index !== tabIndex)
+            .map(index => (index > tabIndex ? index - 1 : index));
+          Vue.set(stateContext.tabsOrder, windowId, nextTabsOrder);
+        }
+
+        const remainingTabs = stateContext.tabs.filter(tab => tab.windowId === windowId);
+        const safeIndex = nextTabIndex >= 0 && nextTabIndex < remainingTabs.length
+          ? nextTabIndex
+          : 0;
+        Vue.set(stateContext.currentTabIndexes, windowId, safeIndex);
+
+        const nextTab = remainingTabs[safeIndex];
+        if (nextTab) {
+          const nextIndex = stateContext.tabs.findIndex(tab => tab.id === nextTab.id);
+          if (nextIndex !== -1) {
+            Vue.set(stateContext.tabs[nextIndex], 'highlighted', true);
+            Vue.set(stateContext.tabs[nextIndex], 'active', true);
+          }
         }
       }
     }

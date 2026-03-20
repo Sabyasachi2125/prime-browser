@@ -1,5 +1,6 @@
 import Vue from 'vue';
 import Electron from 'vue-electron';
+import { ipcRenderer } from 'electron';
 import { Autocomplete } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import 'iview/dist/styles/iview.css';
@@ -11,6 +12,18 @@ import store from '../../shared/store/rendererStore';
 import i18n from './i18n';
 
 Vue.use(Electron);
+
+const browserWindow = window as Window & {
+  api?: {
+    askAI?: (query: string) => Promise<any>;
+  };
+};
+
+if (!browserWindow.api) {
+  browserWindow.api = {
+    askAI: (query: string) => ipcRenderer.invoke('ask-ai', query),
+  };
+}
 
 if (process.env.NODE_ENV === 'production') {
   Vue.config.productionTip = false;

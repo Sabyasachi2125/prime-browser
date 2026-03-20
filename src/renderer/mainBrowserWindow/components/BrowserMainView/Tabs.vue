@@ -44,6 +44,12 @@
             path(:d="path")
       li.tabs-add(@click="$parent.onNewTab(windowId, 'about:newtab', false)")
   .custom-buttons(v-if="enableCustomButtons")
+    button.summary-trigger(
+      type="button"
+      :class="{ active: $parent.showSummary && !$parent.isSummaryMinimized }"
+      :disabled="$parent.isSummarizing"
+      @click.stop="$parent.summarizePage()"
+    ) {{ $parent.showSummary && $parent.isSummaryMinimized ? 'Open AI' : 'AI Summary' }}
     svg(@click="onCustomButtonClick")
       use(:xlink:href="loadButton('minimize-window')")
     svg(@click="onCustomButtonClick")
@@ -429,10 +435,41 @@ export default class Tabs extends Vue {
 
 .custom-buttons {
   display: flex;
-  width: 120px;
-  padding-left: 30px;
+  width: 240px;
+  padding-left: 12px;
   align-items: center;
   justify-content: space-between;
+
+  .summary-trigger {
+    height: 28px;
+    min-width: 104px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #0f766e, #155e75);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .summary-trigger:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(15, 118, 110, 0.25);
+  }
+
+  .summary-trigger.active {
+    background: linear-gradient(135deg, #155e75, #1d4ed8);
+  }
+
+  .summary-trigger:disabled {
+    opacity: 0.72;
+    cursor: wait;
+  }
 
   svg {
     width: 10px;
