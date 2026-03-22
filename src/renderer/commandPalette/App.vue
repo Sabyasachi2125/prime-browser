@@ -7,6 +7,12 @@
 export default {
   name: 'CommandPalette',
   mounted() {
+    const browserWindow = window as Window & {
+      api?: {
+        onThemeUpdated?: (callback: (theme: string) => void) => void;
+      };
+    };
+
     const applyTheme = () => {
       const theme = localStorage.getItem('prime_browser_theme') || 'dark';
       document.documentElement.setAttribute('data-theme', theme);
@@ -18,8 +24,8 @@ export default {
       }
     });
 
-    if (window.api && window.api.onThemeUpdated) {
-      window.api.onThemeUpdated((theme) => {
+    if (browserWindow.api && browserWindow.api.onThemeUpdated) {
+      browserWindow.api.onThemeUpdated((theme) => {
         localStorage.setItem('prime_browser_theme', theme);
         applyTheme();
       });

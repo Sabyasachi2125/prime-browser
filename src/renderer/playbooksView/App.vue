@@ -9,6 +9,13 @@ import { Component, Vue } from 'vue-property-decorator';
 @Component({ name: 'playbooks-view' })
 export default class App extends Vue {
   mounted(): void {
+    const browserWindow = window as Window & {
+      api?: {
+        onThemeUpdated?: (callback: (theme: string) => void) => void;
+      };
+      require?: (module: string) => any;
+    };
+
     const applyTheme = () => {
       const theme = localStorage.getItem('prime_browser_theme') || 'dark';
       document.documentElement.setAttribute('data-theme', theme);
@@ -20,8 +27,8 @@ export default class App extends Vue {
       }
     });
 
-    if (window.api && window.api.onThemeUpdated) {
-      window.api.onThemeUpdated((theme) => {
+    if (browserWindow.api && browserWindow.api.onThemeUpdated) {
+      browserWindow.api.onThemeUpdated((theme) => {
         localStorage.setItem('prime_browser_theme', theme);
         applyTheme();
       });
@@ -33,8 +40,8 @@ export default class App extends Vue {
       // This is needed because the app can be launched from the tray, and if it's
       // not focused, it won't receive keyboard events.
       // This is only needed for Electron.
-      if (typeof require !== 'undefined') {
-        const { remote } = require('electron');
+      if (typeof browserWindow.require === 'function') {
+        const { remote } = browserWindow.require('electron');
         remote.getCurrentWindow().show();
       }
     }

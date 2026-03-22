@@ -18,5 +18,5 @@ export default {
   testUserData: `${path.resolve(lulumiRootPath, 'test', 'userData')}`,
   lulumiPagesCustomProtocol: 'lulumi',
   lulumiPDFJSPath: `${path.resolve(lulumiHelperPath, 'pdfjs')}`,
-  lulumiRev: 'c3a3ffb5c4dcdd688c886d5f20f542379064ad2c',
+  lulumiRev: '374a3fb8b5ef680abce7b6b891aa353f62a01a2c',
 };

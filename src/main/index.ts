@@ -1106,6 +1106,18 @@ ipcMain.on('set-history', (event: Electron.IpcMainEvent, val) => {
     window.webContents.send('get-history', event.sender.id);
   });
 });
+// Open a URL in a new tab — sent from the preference/about BrowserView (History page)
+ipcMain.on('open-url-in-new-tab', (event: Electron.IpcMainEvent, url: string) => {
+  if (!url) return;
+  Object.keys(windows).forEach((key) => {
+    const id = parseInt(key, 10);
+    const window = windows[id];
+    if (window && window.getTitle() !== 'command-palette') {
+      window.webContents.send('new-tab', { url, follow: true });
+      window.focus();
+    }
+  });
+});
 
 // listen to new-lulumi-window event
 ipcMain.on('new-lulumi-window', (event: Electron.IpcMainEvent, data) => {

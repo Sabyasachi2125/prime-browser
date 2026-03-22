@@ -69,6 +69,8 @@ import imageUtil from '../../lib/image-util';
 import ExtensionService from '../../api/extension-service';
 import Event from '../../api/event';
 
+import historyService from '../../services/history';
+
 interface AIResponse {
   choices?: Array<{
     message?: {
@@ -758,14 +760,30 @@ ${pageText}`;
   onDidFrameFinishLoad(event: Electron.DidFrameFinishLoadEvent, tabIndex: number, tabId: number): void {
     if (event.isMainFrame) {
       const view = this.getBrowserView(tabIndex);
+      const url = view.webContents.getURL();
       this.$store.dispatch('didFrameFinishLoad', {
         tabId,
         tabIndex,
-        url: view.webContents.getURL(),
+        url,
         canGoBack: view.webContents.canGoBack(),
         canGoForward: view.webContents.canGoForward(),
         windowId: this.windowId,
       });
+      // Persist to localStorage for cross-restart durability
+      const tabObj = this.getTabObject(tabIndex);
+      const isInternal = !url ||
+        url.startsWith('lulumi://') ||
+        url.startsWith('lulumi-extension://') ||
+        url.startsWith('chrome://') ||
+        url.startsWith('lulumi:blank') ||
+        (url.startsWith('file://') && url.includes('/error/index.html'));
+      if (!isInternal && tabObj) {
+        historyService.addHistory({
+          url,
+          title: tabObj.title || url,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
   // eslint-disable-next-line max-len

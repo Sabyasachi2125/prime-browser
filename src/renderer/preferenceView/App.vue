@@ -8,6 +8,9 @@ import { Component, Vue } from 'vue-property-decorator';
 
 interface Window {
   data: Record<string, any>;
+  api?: {
+    onThemeUpdated?: (callback: (theme: string) => void) => void;
+  };
 }
 
 declare const window: Window;

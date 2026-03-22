@@ -90,6 +90,13 @@
         webview.extension(:ref="`webview-${extension.extensionId}`",
                           allowpopups="")
   .common-group
+    a.history-btn(
+      id="browser-navbar__history"
+      @click="openHistory"
+      class="enabled"
+      title="History"
+    )
+      iview-icon(type="md-time", size="18")
     a(id="browser-navbar__common", @click="$parent.onCommonMenu", class="enabled")
       iview-icon(type="md-more", size="22")
 </template>
@@ -491,6 +498,13 @@ export default class Navbar extends Vue {
       }
     });
     return newSuggestions;
+  }
+  openHistory(): void {
+    (this.$parent as BrowserMainView).onNewTab(
+      (this.$parent as BrowserMainView).windowId,
+      'lulumi://about/#/history',
+      true
+    );
   }
   onGoBackMouseDown(): void {
     this.handler =
@@ -1333,18 +1347,21 @@ export default class Navbar extends Vue {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
+    width: 56px;
+    gap: 2px;
 
     #browser-navbar__common {
       padding: 2px;
     }
+
+    .history-btn {
+      padding: 2px 4px;
+      opacity: 0.8;
+      &:hover {
+        opacity: 1;
+      }
+    }
   }
 }
+
 </style>
-  getFirstRef<T>(key: string): T | null {
-    const ref = this.$refs[key] as T[] | T | undefined;
-    if (!ref) {
-      return null;
-    }
-    return Array.isArray(ref) ? (ref[0] || null) : ref;
-  }
