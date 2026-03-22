@@ -1,7 +1,15 @@
 /* eslint-disable no-console */
 
 import { Store } from 'vuex';
-import { readdirSync, readFileSync, rename, writeFile } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rename,
+  writeFile,
+  writeFileSync,
+} from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -39,7 +47,7 @@ dotenv.config({
 
 const isTesting = process.env.NODE_ENV === 'test';
 const startTime = new Date().getTime();
-const globalObject = global as Lulumi.API.GlobalObject;
+const globalObject = global as unknown as Lulumi.API.GlobalObject;
 
 /*
  * Set `__static` path to static files in production
@@ -48,6 +56,9 @@ const globalObject = global as Lulumi.API.GlobalObject;
 if (process.env.NODE_ENV !== 'development') {
   globalObject.__static = path.resolve(__dirname, '../static');
 }
+
+const { nativeTheme } = require('electron');
+nativeTheme.themeSource = 'dark'; // Initialize deeply routed Chromium theme styling to default
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -64,6 +75,29 @@ if (process.env.NODE_ENV === 'development') {
 
 const storagePath: string = path.join(app.getPath('userData'), 'lulumi-state');
 const langPath: string = path.join(app.getPath('userData'), 'lulumi-lang');
+
+function getDefaultLang(): string {
+  const countryCode = app.getLocaleCountryCode();
+  if (countryCode === 'TW') {
+    return 'zh-TW';
+  }
+  if (countryCode === 'CN') {
+    return 'zh-CN';
+  }
+  return 'en-US';
+}
+
+function ensureUserDataFiles(): void {
+  const userDataPath = app.getPath('userData');
+  if (!existsSync(userDataPath)) {
+    mkdirSync(userDataPath, { recursive: true });
+  }
+  if (!existsSync(langPath)) {
+    writeFileSync(langPath, JSON.stringify(getDefaultLang()));
+  }
+}
+
+ensureUserDataFiles();
 
 let lulumiStateSaveHandler: any = null;
 let setLanguage = false;
@@ -156,6 +190,19 @@ const requestJson = (options: SecureJsonRequestOptions): Promise<any> => (
   })
 );
 
+let globalCurrentTheme = 'dark'; // Track the global theme setting
+ipcMain.on('set-theme', (event, theme) => {
+  globalCurrentTheme = theme;
+  const { webContents } = require('electron');
+  nativeTheme.themeSource = theme;
+  webContents.getAllWebContents().forEach((wc) => {
+    wc.send('theme-updated', theme);
+  });
+});
+ipcMain.on('get-current-theme', (event) => {
+  event.returnValue = globalCurrentTheme;
+});
+
 function lulumiStateSave(soft = true, windowCount = Object.keys(windows).length): void {
   if (!soft) {
     let count = 0;
@@ -200,6 +247,12 @@ function createWindow(options?: Electron.BrowserWindowConstructorOptions, callba
     frame: !is.windows,
     fullscreenWindowTitle: true,
     title: 'Prime Browser',
+    icon: path.join(
+      __dirname,
+      process.env.NODE_ENV === 'development'
+        ? '../../static/icons/logo.ico'
+        : '../static/icons/logo.ico'
+    ),
     minWidth: 320,
     minHeight: 500,
     titleBarStyle: 'hiddenInset',

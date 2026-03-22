@@ -1,5 +1,7 @@
 <template lang="pug">
 #browser-navbar
+  .logo-group(style="display: flex; align-items: center; padding-left: 10px; padding-right: 5px;")
+    img(:src="logoUrl" style="max-height: 20px; width: auto;" alt="Prime Browser")
   .control-group
     a(@click="$parent.onClickHome", class="enabled")
       iview-icon(type="md-home", size="16")
@@ -99,8 +101,10 @@ import { Component, Watch, Vue } from 'vue-property-decorator';
 
 import * as path from 'path';
 import * as url from 'url';
+import { nativeImage } from 'electron';
+import { fixPathForAsarUnpack } from 'electron-util';
 
-import AwesomeIcon from 'vue-awesome/components/Icon.vue';
+import AwesomeIcon from 'vue-awesome/components/Icon.js';
 import 'vue-awesome/icons/lock';
 import 'vue-awesome/icons/unlock';
 
@@ -122,6 +126,8 @@ import '../../css/el-autocomplete';
 import '../../css/el-badge';
 import '../../css/el-input';
 /* eslint-enable import/no-unresolved */
+
+declare const __static: string;
 
 Vue.component('SuggestionItem', {
   functional: true,
@@ -258,6 +264,23 @@ export default class Navbar extends Vue {
   onpageActionClickedEvent: Event = new Event();
 
   windowId: number;
+
+  get logoUrl(): string {
+    /* global __static */
+    if (typeof __static === 'undefined') return '';
+    const logoPath = path.join(__static, 'icons', 'logo.png');
+    return nativeImage
+      .createFromPath(fixPathForAsarUnpack(logoPath))
+      .toDataURL();
+  }
+
+  getFirstRef<T>(key: string): T | null {
+    const ref = this.$refs[key] as T[] | T | undefined;
+    if (Array.isArray(ref)) {
+      return ref[0] || null;
+    }
+    return ref || null;
+  }
 
   get dummyTabObject(): Lulumi.Store.TabObject {
     return this.$store.getters.tabConfig.dummyTabObject;
@@ -902,8 +925,9 @@ export default class Navbar extends Vue {
     if (this.tab === this.dummyTabObject) {
       return;
     }
-    if (this.$refs[`badge-${extensionId}`] && this.$refs[`badge-${extensionId}`][0]) {
-      const node = this.$refs[`badge-${extensionId}`][0].$el.childNodes[1];
+    const badgeRef = this.getFirstRef<Vue>(`badge-${extensionId}`);
+    if (badgeRef) {
+      const node = badgeRef.$el.childNodes[1] as HTMLElement | undefined;
       const extensionMetadata = this.extensionsMetadata(extensionId);
       const color = (extensionMetadata !== null)
         ? extensionMetadata.badgeBackgroundColor
@@ -1019,7 +1043,10 @@ export default class Navbar extends Vue {
       const isPageAction = extension.page_action;
       const isBrowserAction = extension.browser_action;
       if (isPageAction || isBrowserAction) {
-        const webview: Electron.WebviewTag = this.$refs[`webview-${extension.extensionId}`][0];
+        const webview = this.getFirstRef<Electron.WebviewTag>(`webview-${extension.extensionId}`);
+        if (!webview) {
+          return;
+        }
         const contextMenuEvent = (event2) => {
           const { Menu, MenuItem } = this.$electron.remote;
           const menu = new Menu();
@@ -1158,15 +1185,19 @@ export default class Navbar extends Vue {
     ipc.on(
       'lulumi-commands-execute-page-action',
       (event, extensionId: string) => {
-        const extension = this.$refs[`popover-${extensionId}`][0].referenceElm;
-        extension.click();
+        const popover = this.getFirstRef<any>(`popover-${extensionId}`);
+        if (popover && popover.referenceElm) {
+          popover.referenceElm.click();
+        }
       }
     );
     ipc.on(
       'lulumi-commands-execute-browser-action',
       (event, extensionId: string) => {
-        const extension = this.$refs[`popover-${extensionId}`][0].referenceElm;
-        extension.click();
+        const popover = this.getFirstRef<any>(`popover-${extensionId}`);
+        if (popover && popover.referenceElm) {
+          popover.referenceElm.click();
+        }
       }
     );
 
@@ -1199,9 +1230,9 @@ export default class Navbar extends Vue {
   height: 36px;
   padding: 0 5px;
   font-size: 15px;
-  background: #f5f5f5;
-  border-top: 1px solid #bbb;
-  border-bottom: 1px solid #aaa;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
 
   a {
     flex: 1;
@@ -1209,20 +1240,20 @@ export default class Navbar extends Vue {
     border-radius: 3px;
     cursor: default;
     text-decoration: none;
-    color: #777;
+    color: var(--text-secondary);
 
     &.enabled {
       &:hover {
-        background-color: rgb(210, 210, 210);
+        background-color: rgba(128, 128, 128, 0.2);
       }
 
       &:active {
-        background-color: rgb(200, 200, 200);
+        background-color: rgba(128, 128, 128, 0.4);
       }
     }
 
     &.disabled {
-      color: #bbb;
+      color: var(--border-color);
     }
   }
 
@@ -1243,7 +1274,7 @@ export default class Navbar extends Vue {
     }
 
     a {
-      border: 1px solid #bbb;
+      border: 1px solid var(--border-color);
       border-left: 0;
       padding: 4px 0;
       margin: 4px 0 3px;
@@ -1289,11 +1320,11 @@ export default class Navbar extends Vue {
       }
 
       &:hover {
-        background-color: rgb(210, 210, 210);
+        background-color: rgba(128, 128, 128, 0.2);
       }
 
       &:active {
-        background-color: rgb(200, 200, 200);
+        background-color: rgba(128, 128, 128, 0.4);
       }
     }
   }
@@ -1310,3 +1341,10 @@ export default class Navbar extends Vue {
   }
 }
 </style>
+  getFirstRef<T>(key: string): T | null {
+    const ref = this.$refs[key] as T[] | T | undefined;
+    if (!ref) {
+      return null;
+    }
+    return Array.isArray(ref) ? (ref[0] || null) : ref;
+  }

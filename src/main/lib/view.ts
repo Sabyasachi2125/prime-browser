@@ -213,6 +213,7 @@ export default class View {
       horizontal: false,
       vertical: false,
     });
+    this.browserView.setBackgroundColor('#00000000');
     this.fitWindow();
     this.webContents.loadURL(urlUtil.getUrlFromInput(url));
   }

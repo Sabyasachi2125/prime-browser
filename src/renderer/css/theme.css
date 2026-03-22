@@ -1,0 +1,37 @@
+:root {
+  /* Dark Theme Default */
+  --bg-primary: #121212;
+  --bg-secondary: #0f0f0f;
+  --card-bg: #1a1a1a;
+  --border-color: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --accent-color: #ff8c00;
+  --accent-hover: #e07b00;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f0f0f0;
+  --card-bg: #f5f5f5;
+  --border-color: #e0e0e0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --accent-color: #ff8c00;
+  --accent-hover: #e07b00;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.el-input__inner,
+.el-input-group__append,
+.el-input-group__prepend {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}

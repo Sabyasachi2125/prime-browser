@@ -6,11 +6,31 @@
 <script>
 export default {
   name: 'LulumiBrowser',
+  mounted() {
+    const applyTheme = () => {
+      const theme = localStorage.getItem('prime_browser_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    applyTheme();
+    window.addEventListener('storage', (event) => {
+      if (event.key === 'prime_browser_theme') {
+        applyTheme();
+      }
+    });
+
+    if (this.$electron && this.$electron.ipcRenderer) {
+      this.$electron.ipcRenderer.on('theme-updated', (event, theme) => {
+        localStorage.setItem('prime_browser_theme', theme);
+        applyTheme();
+      });
+    }
+  }
 };
 </script>
 
 <style lang="less">
 @import (css) url('https://fonts.googleapis.com/css?family=Source+Code+Pro');
+@import '../css/theme.css';
 
 * {
   margin: 0;
@@ -23,8 +43,7 @@ html, body {
 }
 
 body {
-  background: radial-gradient(ellipse at center,#f5f5f5 0,hsla(0,0%,90%,.85) 100%);
-  background-position: center;
+  /* Removed old gradient */
   display: flex;
   font-family: 'Source Code Pro', Courier, monospace;;
   justify-content: center;

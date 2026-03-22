@@ -12,7 +12,7 @@
 
 import { Component, Vue } from 'vue-property-decorator';
 
-import AwesomeIcon from 'vue-awesome/components/Icon.vue';
+import AwesomeIcon from 'vue-awesome/components/Icon.js';
 import 'vue-awesome/icons/spinner';
 
 @Component({
@@ -86,8 +86,10 @@ export default class StatusBar extends Vue {
   left: 0;
   right: 0;
   height: 22px;
-  background: #007acc;
-  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
   cursor: default;
   font-family: Cascadia, 'Source Sans Pro', sans-serif;
   font-size: 12px;

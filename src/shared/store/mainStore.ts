@@ -20,7 +20,7 @@ const isDarwin: boolean = is.macos;
 const isWindows: boolean = is.windows;
 const isLinux: boolean = is.linux;
 
-const globalObject = global as Lulumi.API.GlobalObject;
+const globalObject = global as unknown as Lulumi.API.GlobalObject;
 
 const windows: Electron.BrowserWindow[] = [];
 

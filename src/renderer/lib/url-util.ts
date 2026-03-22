@@ -53,7 +53,7 @@ const urlUtil = {
     // - scheme + ':' (ex. http:)
     // - scheme + '://' (ex. http://)
     // - null
-    const scheme = (rscheme.exec(input) || [])[0];
+    const scheme = (rscheme.exec(input) || [])[0] || null;
     return scheme === 'localhost://' ? null : scheme;
   },
 
@@ -149,7 +149,7 @@ const urlUtil = {
       return true;
     }
     if (case2Reg.test(str) || !case3Reg.test(str) ||
-      (scheme === undefined && /\s/g.test(str))) {
+      (scheme === null && /\s/g.test(str))) {
       return true;
     }
     if (case4Reg.test(str)) {

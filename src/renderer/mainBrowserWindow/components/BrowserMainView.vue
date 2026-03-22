@@ -256,7 +256,12 @@ export default class BrowserMainView extends Vue {
         index = this.currentTabIndex;
       }
     }
-    return this.$refs[`tab-${index}`][0].getBrowserView();
+    const tabRef = this.$refs[`tab-${index}`] as Tab[] | Tab | undefined;
+    const tabComponent = Array.isArray(tabRef) ? tabRef[0] : tabRef;
+    if (!tabComponent) {
+      throw new Error(`Tab component not found for index ${index}`);
+    }
+    return tabComponent.getBrowserView();
   }
   getTab(tabIndex?: number): Tab {
     let index: number | undefined = tabIndex;
@@ -267,7 +272,12 @@ export default class BrowserMainView extends Vue {
         index = this.currentTabIndex;
       }
     }
-    return this.$refs[`tab-${index}`][0];
+    const tabRef = this.$refs[`tab-${index}`] as Tab[] | Tab | undefined;
+    const tabComponent = Array.isArray(tabRef) ? tabRef[0] : tabRef;
+    if (!tabComponent) {
+      throw new Error(`Tab component not found for index ${index}`);
+    }
+    return tabComponent;
   }
   getTabObject(tabIndex?: number): Lulumi.Store.TabObject {
     let index: number | undefined = tabIndex;
@@ -682,21 +692,25 @@ ${pageText}`;
     });
   }
   onPageTitleUpdated(event: Electron.PageTitleUpdatedEvent, tabIndex: number, tabId: number): void {
+    let { title } = event;
+    if (title && title.includes('localhost:') && title.includes('9080')) {
+      title = 'Prime Browser';
+    }
     this.$electron.ipcRenderer.send('set-browser-window-title', {
-      title: event.title,
+      title,
       windowId: this.windowId,
     });
     this.$store.dispatch('pageTitleUpdated', {
       tabId,
       tabIndex,
-      title: event.title,
+      title,
       windowId: this.windowId,
     });
     if (!(process.env.NODE_ENV === 'test' && process.env.TEST_ENV === 'unit')) {
       this.onUpdatedEvent.emit(
         tabId,
         {
-          title: event.title,
+          title,
         },
         this.getTabObject(tabIndex)
       );
@@ -794,6 +808,8 @@ ${pageText}`;
       canGoForward: view.webContents.canGoForward(),
       windowId: this.windowId,
     });
+
+    // Google Native Dark mode is now natively mapped by Chromium engine via `themeSource`
   }
   onDidFailLoad(event: Electron.DidFailLoadEvent, tabIndex: number, tabId: number): void {
     this.$store.dispatch('didFailLoad', {
@@ -825,12 +841,17 @@ ${pageText}`;
     }
   }
   onIpcMessage(event: Electron.IpcMessageEvent): void {
-    const { target } = event;
-    if (event.channel === 'newtab') {
+    const { target, channel } = event;
+    if (channel === 'newtab') {
       if (this.extensionService.newtabOverrides !== '') {
         (target as any).send('newtab', this.extensionService.newtabOverrides);
       } else {
         (target as any).send('newtab', '');
+      }
+    } else if (channel === 'set-theme') {
+      const themeArg = (event as any).args ? (event as any).args[0] : null;
+      if (themeArg) {
+        this.$electron.ipcRenderer.send('set-theme', themeArg);
       }
     }
   }
@@ -1410,7 +1431,7 @@ ${pageText}`;
   }
   // navHandlers
   onClickHome(): void {
-    this.getTab().navigateTo(this.homepage);
+    this.getTab().navigateTo('lulumi://about/#/newtab');
   }
   onClickBack(): void {
     if (this.getTabObject().error) {
@@ -1480,7 +1501,10 @@ ${pageText}`;
   onEnterUrl(url: string): void {
     let newUrl: string;
     if (urlUtil.isNotURL(url)) {
-      newUrl = this.$store.getters.currentSearchEngine.search.replace('{queryString}', url);
+      newUrl = this.$store.getters.currentSearchEngine.search.replace(
+        '{queryString}',
+        encodeURIComponent(url.trim())
+      );
     } else {
       newUrl = url;
     }

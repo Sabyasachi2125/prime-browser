@@ -375,7 +375,10 @@ export default class SearchBar extends Vue {
   mounted(): void {
     this.recommender = Comlink.wrap(new Worker('recommender.js'));
     this.debouncedQuerySearch = debounce(this.querySearch, 250);
-    this.hits = this.$parent.$refs.hits as Hits;
+    const parent = this.$parent as Vue | null;
+    if (parent && parent.$refs.hits) {
+      this.hits = parent.$refs.hits as Hits;
+    }
 
     this.$electron.ipcRenderer.on('send-focus', () => {
       this.focus = true;

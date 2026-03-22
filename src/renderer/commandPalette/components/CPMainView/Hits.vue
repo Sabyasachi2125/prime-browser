@@ -72,7 +72,10 @@ export default class Hits extends Vue {
   }
 
   mounted(): void {
-    this.searchBar = this.$parent.$refs.searchBar as SearchBar;
+    const parent = this.$parent as Vue | null;
+    if (parent && parent.$refs.searchBar) {
+      this.searchBar = parent.$refs.searchBar as SearchBar;
+    }
   }
 }
 </script>

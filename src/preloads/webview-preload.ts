@@ -140,6 +140,8 @@ process.once('loaded', () => {
   contextBridge.exposeInMainWorld('api', {
     getWeather: (payload: any) => invokeWithTimeout('api:get-weather', payload, 10000),
     askAI: (query: string) => ipcRenderer.invoke('ask-ai', query),
+    setTheme: (theme: string) => ipcRenderer.send('set-theme', theme),
+    onThemeUpdated: (callback: any) => ipcRenderer.on('theme-updated', (event, theme) => callback(theme)),
   });
   if (document.location) {
     if (document.location.href.startsWith('lulumi://') ||
@@ -177,5 +179,39 @@ process.once('loaded', () => {
     if (data.result === 'OK') {
       delete isolatedWorldMaps[data.extensionId];
     }
+  });
+
+  const updateGoogleSearchTheme = (theme: string) => {
+    if (location.href.includes('google.com/search')) {
+      let style = document.getElementById('prime-browser-dark-theme');
+      if (theme === 'dark') {
+        if (!style) {
+          style = document.createElement('style');
+          style.id = 'prime-browser-dark-theme';
+          style.textContent = 'html, body, #main, #search, .g, div { background-color: #121212 !important; color: #e8eaed !important; border-color: #3c4043 !important; } a, a:link, a:visited, a * { color: #8ab4f8 !important; } em, blockquote, span { color: #bdc1c6 !important; } cite, cite a:link, cite a:visited { color: #81c995 !important; } input { background-color: #202124 !important; color: #fff !important; }';
+          if (document.head) {
+            document.head.appendChild(style);
+          } else if (document.documentElement) {
+            document.documentElement.appendChild(style);
+          }
+        }
+      } else if (style) {
+        style.remove();
+      }
+    }
+  };
+
+  ipcRenderer.on('theme-updated', (event, theme) => {
+    updateGoogleSearchTheme(theme);
+  });
+
+  process.once('document-start' as any, () => {
+    const initialTheme = ipcRenderer.sendSync('get-current-theme');
+    updateGoogleSearchTheme(initialTheme);
+  });
+
+  process.once('document-end' as any, () => {
+    const initialTheme = ipcRenderer.sendSync('get-current-theme');
+    updateGoogleSearchTheme(initialTheme);
   });
 });

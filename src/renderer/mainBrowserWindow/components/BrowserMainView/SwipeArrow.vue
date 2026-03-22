@@ -9,7 +9,7 @@ div
 <script lang="ts">
 import { Component, Vue } from 'vue-property-decorator';
 
-import AwesomeIcon from 'vue-awesome/components/Icon.vue';
+import AwesomeIcon from 'vue-awesome/components/Icon.js';
 import 'vue-awesome/icons/arrow-left';
 import 'vue-awesome/icons/arrow-right';
 
@@ -42,7 +42,7 @@ export default class SwipeArrow extends Vue {
   line-height: 1;
   padding: 10px 12px;
   border-radius: 40px;
-  color: #fff;
+  color: var(--text-primary);
   background: rgba(0, 0, 0, 0.25);
   transition: background 0.25s;
 

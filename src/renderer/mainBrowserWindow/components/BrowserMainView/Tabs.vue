@@ -65,7 +65,7 @@ import { Component, Vue } from 'vue-property-decorator';
 
 import * as path from 'path';
 
-import AwesomeIcon from 'vue-awesome/components/Icon.vue';
+import AwesomeIcon from 'vue-awesome/components/Icon.js';
 import 'vue-awesome/icons/volume-up';
 import 'vue-awesome/icons/volume-off';
 
@@ -118,6 +118,8 @@ export default class Tabs extends Vue {
   windowId: number;
   enableCustomButtons = !is.macos;
 
+  isMaximized = false;
+
   get window(): Lulumi.Store.LulumiBrowserWindowProperty {
     return this.$store.getters.windows.find(window => window.id === this.windowId);
   }
@@ -132,11 +134,21 @@ export default class Tabs extends Vue {
     return 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
   }
   get windowState(): string {
-    if (this.window && this.window.state === 'maximized') {
+    if (this.isMaximized) {
       return this.loadButton('restore-window');
     }
 
     return this.loadButton('maximize-window');
+  }
+
+  mounted(): void {
+    const currentWindow: Electron.BrowserWindow | null =
+      this.$electron.remote.BrowserWindow.fromId(this.windowId);
+    if (currentWindow) {
+      this.isMaximized = currentWindow.isMaximized();
+      currentWindow.on('maximize', () => { this.isMaximized = true; });
+      currentWindow.on('unmaximize', () => { this.isMaximized = false; });
+    }
   }
 
   loadButton(id: string): string {
@@ -191,7 +203,7 @@ export default class Tabs extends Vue {
   display: flex;
   height: 36px;
   align-items: center;
-  background: #dbdbdb;
+  background: var(--bg-primary);
   border-top-left-radius: 4px;
   border-top-right-radius: 4px;
   user-select: none;
@@ -233,10 +245,10 @@ export default class Tabs extends Vue {
           // https://bit.ly/3e22atx
           min-width: 0;
           position: relative;
-          background-color: #dbdbdb;
+          background-color: var(--bg-primary);
           z-index: 5;
           height: 31px;
-          border-top: 1px solid #bbb;
+          border-top: 1px solid var(--border-color);
           margin: 0 5px;
           font-size: 0;
 
@@ -346,39 +358,39 @@ export default class Tabs extends Vue {
             }
 
             &:hover {
-              fill: #fff;
+              fill: var(--text-primary);
               background: #e25c4d;
 
               svg path {
-                fill: #fff;
+                fill: var(--text-primary);
               }
             }
           }
 
           &.active {
             z-index: 10;
-            background: #f2f2f2;
+            background: var(--card-bg);
             height: 32px;
-            border-bottom: 1px solid #f2f2f2;
+            border-bottom: 1px solid var(--card-bg);
 
             &::before,
             &::after {
               z-index: 10;
               align-self: flex-start;
               height: 32px;
-              background: #f2f2f2;
-              border-bottom: 1px solid #f2f2f2;
+              background: var(--card-bg);
+              border-bottom: 1px solid var(--card-bg);
             }
           }
 
           &:hover {
             transition: background-color 0.5s;
-            background: #eee;
+            background: rgba(128, 128, 128, 0.1);
 
             &::before,
             &::after {
               transition: background-color 0.5s;
-              background: #eee;
+              background: rgba(128, 128, 128, 0.1);
             }
           }
 
@@ -389,9 +401,9 @@ export default class Tabs extends Vue {
             left: 0;
             width: 16px;
             height: 32px;
-            background-color: #dbdbdb;
-            border-left: 1px solid #bbb;
-            border-bottom: 1px solid #bbb;
+            background-color: var(--bg-primary);
+            border-left: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
             transform: skewx(-25deg);
             transform-origin: left top;
           }
@@ -402,9 +414,9 @@ export default class Tabs extends Vue {
             right: 0;
             width: 16px;
             height: 32px;
-            background-color: #dbdbdb;
-            border-right: 1px solid #bbb;
-            border-bottom: 1px solid #bbb;
+            background-color: var(--bg-primary);
+            border-right: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
             transform: skewx(25deg);
             transform-origin: right top;
           }
@@ -412,20 +424,20 @@ export default class Tabs extends Vue {
 
         &.tabs-add {
           flex-shrink: 0;
-          background: #d9d9d9;
+          background: var(--card-bg);
           width: 26px;
           height: 15px;
           border-radius: 2px;
           margin-left: 8px;
-          border: 1px solid #bbb;
+          border: 1px solid var(--border-color);
           align-self: center;
           transform: skewx(25deg);
 
           &:hover {
-            background: #e4e4e4;
+            background: rgba(128, 128, 128, 0.2);
           }
           &:active {
-            background: #ccc;
+            background: rgba(128, 128, 128, 0.4);
           }
         }
       }
@@ -446,7 +458,7 @@ export default class Tabs extends Vue {
     padding: 0 12px;
     border: 0;
     border-radius: 14px;
-    background: linear-gradient(135deg, #0f766e, #155e75);
+    background: var(--accent-color);
     color: #fff;
     font-size: 10px;
     font-weight: 700;
@@ -459,11 +471,11 @@ export default class Tabs extends Vue {
   .summary-trigger:hover {
     opacity: 1;
     transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(15, 118, 110, 0.25);
+    box-shadow: 0 6px 14px var(--shadow-color);
   }
 
   .summary-trigger.active {
-    background: linear-gradient(135deg, #155e75, #1d4ed8);
+    background: var(--accent-hover);
   }
 
   .summary-trigger:disabled {

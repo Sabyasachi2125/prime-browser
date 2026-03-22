@@ -12,6 +12,8 @@
     .widget-sub {{ currentDate }}
 
   .dashboard
+    .logo-container(style="display: flex; justify-content: center; margin-bottom: 16px;")
+      img(:src="logoUrl" style="height: 64px; width: auto;" alt="Prime Browser")
     h1.title Welcome to Prime Browser
 
     form.search-form(@submit.prevent="onSearchSubmit")
@@ -56,7 +58,6 @@
       .background-options(v-if="showBackgroundOptions")
         button.small-btn(type="button" @click="setBackground('light')") Light
         button.small-btn(type="button" @click="setBackground('dark')") Dark
-        button.small-btn(type="button" @click="setBackground('gradient')") Gradient
 
     .quick-access
       h2 Quick Access
@@ -105,6 +106,8 @@
 <script lang="ts">
 import Vue from 'vue';
 
+declare const __static: string;
+
 interface Shortcut {
   title: string;
   url: string;
@@ -139,13 +142,20 @@ interface Window {
 declare const window: Window;
 
 const SUBTITLE_KEY = 'prime_browser_newtab_subtitle';
-const BACKGROUND_KEY = 'prime_browser_newtab_background';
+const BACKGROUND_KEY = 'prime_browser_theme';
 const SHORTCUTS_KEY = 'prime_browser_newtab_shortcuts';
 
 export default Vue.extend({
   name: 'Newtab',
   data() {
+    // eslint-disable-next-line import/no-webpack-loader-syntax
+    // eslint-disable-next-line import/no-webpack-loader-syntax
+    const logoReq = require(
+      '!!url-loader?limit=500000!../../../../../static/icons/logo.png'
+    );
+    const logoUrl = logoReq && logoReq.default ? logoReq.default : logoReq;
     return {
+      logoUrl,
       subtitle: 'Your personalized home dashboard',
       subtitleDraft: '',
       isEditingSubtitle: false,
@@ -165,42 +175,43 @@ export default Vue.extend({
       clockTimer: 0,
     };
   },
-  mounted() {
-    this.loadFromStorage();
-    this.updateTime();
-    this.clockTimer = setInterval(() => {
+    mounted() {
+      document.title = 'Prime Browser';
+      this.loadFromStorage();
       this.updateTime();
-    }, 1000);
-    this.loadWeather();
-    this.initParticles();
-    this.$nextTick(() => {
-      const searchInput = this.$refs.searchInput as HTMLInputElement | undefined;
-      if (searchInput) {
-        searchInput.focus();
-        this.isSearchFocused = true;
+      this.clockTimer = setInterval(() => {
+        this.updateTime();
+      }, 1000);
+      this.loadWeather();
+      this.initParticles();
+      this.$nextTick(() => {
+        const searchInput = this.$refs.searchInput as HTMLInputElement | undefined;
+        if (searchInput) {
+          searchInput.focus();
+          this.isSearchFocused = true;
+        }
+      });
+    },
+    beforeDestroy() {
+      if (this.clockTimer) {
+        clearInterval(this.clockTimer);
       }
-    });
-  },
-  beforeDestroy() {
-    if (this.clockTimer) {
-      clearInterval(this.clockTimer);
-    }
-  },
-  methods: {
-    loadFromStorage(): void {
-      const subtitle = localStorage.getItem(SUBTITLE_KEY);
-      if (subtitle && subtitle.trim() !== '') {
-        this.subtitle = subtitle;
-      }
+    },
+    methods: {
+      loadFromStorage(): void {
+        const subtitle = localStorage.getItem(SUBTITLE_KEY);
+        if (subtitle && subtitle.trim() !== '') {
+          this.subtitle = subtitle;
+        }
 
-      const background = localStorage.getItem(BACKGROUND_KEY);
-      if (
-        background === 'light' ||
-        background === 'dark' ||
-        background === 'gradient'
-      ) {
-        this.background = background;
-      }
+        const background = localStorage.getItem(BACKGROUND_KEY) || 'dark';
+        if (
+          background === 'light' ||
+          background === 'dark'
+        ) {
+          this.background = background;
+          document.documentElement.setAttribute('data-theme', background);
+        }
 
       const shortcuts = localStorage.getItem(SHORTCUTS_KEY);
       if (shortcuts) {
@@ -235,12 +246,18 @@ export default Vue.extend({
       this.cancelSubtitleEdit();
     },
     setBackground(nextBackground: string): void {
-      if (!['light', 'dark', 'gradient'].includes(nextBackground)) {
+      if (!['light', 'dark'].includes(nextBackground)) {
         return;
       }
       this.background = nextBackground;
       localStorage.setItem(BACKGROUND_KEY, this.background);
+      document.documentElement.setAttribute('data-theme', this.background);
       this.showBackgroundOptions = false;
+
+      // Dispatch globally via ContextBridge api proxy
+      if ((window as any).api && (window as any).api.setTheme) {
+        (window as any).api.setTheme(this.background);
+      }
     },
     normalizedUrl(raw: string): string {
       const value = raw.trim();
@@ -391,26 +408,25 @@ body {
   justify-content: center;
   padding: 56px 20px 32px;
   box-sizing: border-box;
-  color: #eef3ff;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   transition: background 0.28s ease, color 0.28s ease;
 }
 
 .theme-light {
-  background: linear-gradient(180deg, #edf3ff 0%, #dbe6ff 100%);
-  color: #14203a;
 }
 
 .theme-light .weather-widget,
 .theme-light .time-widget {
-  background: rgba(255, 255, 255, 0.78);
-  border-color: rgba(137, 162, 214, 0.42);
-  box-shadow: 0 10px 26px rgba(87, 112, 168, 0.16);
+  background: var(--card-bg);
+  border-color: var(--border-color);
+  box-shadow: 0 10px 26px var(--shadow-color);
 }
 
 .theme-light .dashboard {
-  background: rgba(255, 255, 255, 0.74);
-  border-color: rgba(137, 162, 214, 0.4);
-  box-shadow: 0 24px 56px rgba(87, 112, 168, 0.18);
+  background: var(--card-bg);
+  border-color: var(--border-color);
+  box-shadow: 0 24px 56px var(--shadow-color);
 }
 
 .theme-light .title,
@@ -422,15 +438,10 @@ body {
 .theme-light .limit-note,
 .theme-light .card-title,
 .theme-light .card-url {
-  color: #14203a;
+  color: var(--text-primary);
 }
 
 .theme-dark {
-  background: linear-gradient(135deg, #070b16 0%, #111b36 100%);
-}
-
-.theme-gradient {
-  background: linear-gradient(135deg, #070d1f 0%, #1a2a57 45%, #4b1f5f 100%);
 }
 
 .weather-widget,
@@ -477,9 +488,9 @@ body {
   padding: 28px;
   box-sizing: border-box;
   backdrop-filter: blur(20px);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 20px 60px var(--shadow-color);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -502,16 +513,16 @@ body {
   gap: 8px;
   border-radius: 50px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   backdrop-filter: blur(10px);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .search-shell.focused {
-  border-color: rgba(104, 156, 255, 0.85);
-  box-shadow: 0 0 0 3px rgba(104, 156, 255, 0.2),
-    0 10px 28px rgba(45, 107, 255, 0.3);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(255, 140, 0, 0.2),
+    0 10px 28px rgba(255, 140, 0, 0.3);
 }
 
 .search-input {
@@ -547,7 +558,7 @@ body {
   font-size: 13px;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(120deg, #4d7eff, #6ca7ff);
+  background: var(--accent-color);
   cursor: pointer;
 }
 
@@ -584,37 +595,37 @@ body {
   max-width: 100%;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(132, 158, 224, 0.5);
+  border: 1px solid var(--border-color);
   outline: none;
   font-size: 14px;
   color: inherit;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary);
 }
 
 .theme-light .subtitle-input,
 .theme-light .form-input {
-  color: #1a2a4b;
-  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
 }
 
 .theme-light .small-btn,
 .theme-light .icon-btn,
 .theme-light .delete-btn {
-  color: #1a2a4b;
-  background: rgba(255, 255, 255, 0.82);
-  border-color: rgba(137, 162, 214, 0.52);
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border-color: var(--border-color);
 }
 
 .theme-light .card {
-  color: #14203a;
-  background: rgba(255, 255, 255, 0.82);
-  border-color: rgba(137, 162, 214, 0.42);
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border-color: var(--border-color);
 }
 
 .theme-light .ai-result {
-  color: #14203a;
-  background: rgba(255, 255, 255, 0.86);
-  border-color: rgba(137, 162, 214, 0.45);
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border-color: var(--border-color);
 }
 
 .background-controls {
@@ -646,13 +657,13 @@ body {
 .small-btn,
 .icon-btn,
 .delete-btn {
-  border: 1px solid rgba(132, 158, 224, 0.5);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 9px 12px;
   font-size: 13px;
   font-weight: 600;
   color: inherit;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary);
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
@@ -694,14 +705,14 @@ body {
   color: inherit;
   border-radius: 14px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(160, 186, 245, 0.35);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 14px 28px var(--shadow-color);
 }
 
 .card-favicon {

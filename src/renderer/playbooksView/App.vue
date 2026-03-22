@@ -7,10 +7,43 @@
 import { Component, Vue } from 'vue-property-decorator';
 
 @Component({ name: 'playbooks-view' })
-export default class App extends Vue { }
+export default class App extends Vue {
+  mounted(): void {
+    const applyTheme = () => {
+      const theme = localStorage.getItem('prime_browser_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    applyTheme();
+    (window as any).addEventListener('storage', (event: any) => {
+      if (event.key === 'prime_browser_theme') {
+        applyTheme();
+      }
+    });
+
+    if (window.api && window.api.onThemeUpdated) {
+      window.api.onThemeUpdated((theme) => {
+        localStorage.setItem('prime_browser_theme', theme);
+        applyTheme();
+      });
+    }
+
+    if (!(process.env.NODE_ENV === 'test' &&
+      process.env.TEST_ENV === 'unit')) {
+      // This is a hack to ensure that the app is always focused when it starts.
+      // This is needed because the app can be launched from the tray, and if it's
+      // not focused, it won't receive keyboard events.
+      // This is only needed for Electron.
+      if (typeof require !== 'undefined') {
+        const { remote } = require('electron');
+        remote.getCurrentWindow().show();
+      }
+    }
+  }
+}
 </script>
 
 <style>
+@import '../css/theme.css';
 
 html, body {
   height: 100%;
@@ -23,6 +56,8 @@ body {
   margin: 0;
   box-sizing: border-box;
   font-family: Roboto, system-ui, PingFang TC, Heiti TC, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 #page-wrapper {
   width: auto;

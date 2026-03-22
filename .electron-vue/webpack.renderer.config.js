@@ -8,7 +8,6 @@ const webpack = require('webpack')
 
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const WriteFileWebpackPlugin = require('write-file-webpack-plugin')
-const ForkTsCheckerNotifierWebpackPlugin = require('fork-ts-checker-notifier-webpack-plugin')
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const CspHtmlWebpackPlugin = require('csp-html-webpack-plugin')
@@ -235,7 +234,6 @@ let mainBrowserWindowConfig = {
         }
       }
     }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Renderer Process [mainBrowserWindow]', excludeWarnings: false }),
     new VueLoaderPlugin(),
     new CopyWebpackPlugin({ patterns: [{
       from: 'src/helper/',
@@ -335,8 +333,7 @@ let preloadsConfig = {
           vue: true
         }
       }
-    }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Renderer Process [preloads]', excludeWarnings: false })
+    })
   ],
   output: {
     filename: '[name].js',
@@ -515,7 +512,6 @@ let preferenceViewConfig = {
         }
       }
     }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Renderer Process [preferenceView]', excludeWarnings: false }),
     new VueLoaderPlugin()
   ],
   output: {
@@ -697,7 +693,6 @@ let playbooksViewConfig = {
         }
       }
     }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Renderer Process [playbooksView]', excludeWarnings: false }),
     new VueLoaderPlugin()
   ],
   output: {
@@ -881,7 +876,6 @@ let commandPaletteConfig = {
         }
       }
     }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Renderer Process [commandPalette]', excludeWarnings: false }),
     new VueLoaderPlugin()
   ],
   output: {

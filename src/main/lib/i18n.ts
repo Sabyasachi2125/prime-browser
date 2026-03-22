@@ -12,7 +12,7 @@ import * as enUS from '../../helper/i18n/en-US';
 import * as zhCN from '../../helper/i18n/zh-CN';
 import * as zhTW from '../../helper/i18n/zh-TW';
 
-const langPath: string = path.join(app.getPath('userData'), 'lululmi-lang');
+const langPath: string = path.join(app.getPath('userData'), 'lulumi-lang');
 
 let lang = '';
 try {

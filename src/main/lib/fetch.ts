@@ -2,7 +2,13 @@
 
 import { net } from 'electron';
 
-export default function fetch(url: string, callback: ({ body: string, error: any, ok: boolean }) => any): void {
+interface FetchResponse {
+  body: string;
+  error: any;
+  ok: boolean;
+}
+
+export default function fetch(url: string, callback: (response: FetchResponse) => any): void {
   let bodyData = '';
   const urlRequest = net.request(url);
   urlRequest.on('response', (response) => {

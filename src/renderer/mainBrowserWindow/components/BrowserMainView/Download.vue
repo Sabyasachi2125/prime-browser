@@ -166,12 +166,12 @@ export default class Download extends Vue {
 
 <style scoped>
 #download-bar {
-  background: #F3F3F3;
-  border-color: #d3d3d3;
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
   border-style: solid;
   border-width: 1px 1px 0 0;
   bottom: 0;
-  color: #555555;
+  color: var(--text-primary);
   font-size: 18px;
   left: 0;
   width: 100vw;
@@ -210,8 +210,8 @@ export default class Download extends Vue {
 }
 .download-list__item {
   overflow: hidden;
-  background-color: #fff;
-  border: 1px solid #c0ccda;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   box-sizing: border-box;
   margin: 0 2px;
@@ -226,7 +226,7 @@ export default class Download extends Vue {
   flex-direction: column;
 }
 .download-list__item-name {
-  color: #48576a;
+  color: var(--text-primary);
   padding-left: 4px;
   transition: color .3s;
   font-size: 13px;

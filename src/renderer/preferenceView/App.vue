@@ -15,6 +15,24 @@ declare const window: Window;
 @Component({ name: 'lulumi-browser' })
 export default class App extends Vue {
   mounted(): void {
+    const applyTheme = () => {
+      const theme = localStorage.getItem('prime_browser_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    applyTheme();
+    (window as any).addEventListener('storage', (event: any) => {
+      if (event.key === 'prime_browser_theme') {
+        applyTheme();
+      }
+    });
+
+    if (window.api && window.api.onThemeUpdated) {
+      window.api.onThemeUpdated((theme) => {
+        localStorage.setItem('prime_browser_theme', theme);
+        applyTheme();
+      });
+    }
+
     if (!(process.env.NODE_ENV === 'test' &&
       process.env.TEST_ENV === 'unit')) {
       if (window.data.about) {
@@ -42,6 +60,8 @@ export default class App extends Vue {
 </script>
 
 <style>
+@import '../css/theme.css';
+
 html,
 body,
 #app {
@@ -54,6 +74,8 @@ body,
 body {
   box-sizing: border-box;
   font-family: Roboto, system-ui, PingFang TC, Heiti TC, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 #app > * {

@@ -20,6 +20,12 @@
       "es7",
       "es2017.object"
     ],
+    "types": [
+      "node",
+      "chrome",
+      "webpack-env",
+      "webpack-hot-middleware"
+    ],
     "typeRoots": [
       "../node_modules/@types",
       "./typings"

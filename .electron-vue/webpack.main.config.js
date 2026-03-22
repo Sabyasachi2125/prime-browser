@@ -7,7 +7,6 @@ const path = require('path')
 const { dependencies } = require('../package.json')
 const webpack = require('webpack')
 
-const ForkTsCheckerNotifierWebpackPlugin = require('fork-ts-checker-notifier-webpack-plugin')
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin')
 
 /**
@@ -97,8 +96,7 @@ let mainConfig = {
           vue: true
         }
       }
-    }),
-    new ForkTsCheckerNotifierWebpackPlugin({ title: 'Main Process', excludeWarnings: false })
+    })
   ],
   resolve: {
     alias: {
