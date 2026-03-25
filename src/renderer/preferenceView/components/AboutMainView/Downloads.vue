@@ -1,54 +1,39 @@
 <template lang="pug">
-div
-  el-row(type="flex", align="middle")
-    el-col(:span="12")
-      h1 {{ $t('about.downloadsPage.title') }}
-    el-col(:span="6", :offset="3")
-      el-button(type="danger",
-                size="medium" ,
-                @click="setDownloads(-1)") {{ $t('about.downloadsPage.clear') }}
-  el-row
-    el-col(:span="24")
-      ul(class="download-list")
-        li(v-for="(file, index) in files", :key="index", class="download-list__item")
-          span(v-if="file.state !== 'progressing'",
-               class="el-icon-close",
-               @click="setDownloads(index)")
-          el-progress(:status="checkStateForProgress(file.state)",
-                      :text-inside="true",
-                      :percentage="percentage(file)",
-                      :stroke-width="18",
-                      class="download-list__item-progress")
-          a(class="download-list__item-name download-list__item-link", :href="`${file.url}`")
-            i(class="el-icon-document")
-              span(style="font-family: initial;") {{ file.name }}
-          el-button-group
-            el-button(:disabled="file.state !== 'progressing'",
-                      v-if="file.isPaused && file.canResume",
-                      :plain="true",
-                      type="warning",
-                      size="small",
-                      icon="el-icon-caret-right",
-                      @click="resumeDownload(file.startTime)")
-            el-button(:disabled="file.state !== 'progressing'",
-                      v-else,
-                      :plain="true",
-                      type="warning",
-                      size="small",
-                      icon="el-icon-minus",
-                      @click="pauseDownload(file.startTime)")
-            el-button(:disabled="file.state !== 'progressing'",
-                      :plain="true",
-                      type="danger",
-                      size="small",
-                      icon="el-icon-circle-close",
-                      @click="cancelDownload(file.startTime)")
-            el-button(:disabled="file.state === 'cancelled'",
-                      :plain="true",
-                      type="info",
-                      size="small",
-                      icon="el-icon-document",
-                      @click="showItemInFolder(file.savePath)")
+.downloads-page
+  .downloads-header
+    .downloads-title-row
+      h1.downloads-title Downloads
+    .downloads-actions
+      button.clear-btn(
+        @click="clearAll"
+        :disabled="downloads.length === 0"
+      ) Clear All
+  .downloads-content
+    .downloads-empty(v-if="downloads.length === 0")
+      p No downloads yet
+    .downloads-list(v-else)
+      .download-item(v-for="item in downloads" :key="item.id")
+        .download-main
+          .download-name {{ item.fileName }}
+          .download-url {{ item.url }}
+        .download-meta
+          span.download-status(:class="`is-${item.status}`") {{ item.status }}
+          span.download-time {{ formatTime(item.timestamp) }}
+        .download-progress(v-if="item.status === 'downloading'")
+          el-progress(
+            :percentage="item.progress"
+            :stroke-width="10"
+            :show-text="true"
+          )
+        .download-actions
+          button.action-btn(
+            @click="openFile(item.filePath)"
+            :disabled="!item.filePath || item.status === 'downloading'"
+          ) Open File
+          button.action-btn(
+            @click="showInFolder(item.filePath)"
+            :disabled="!item.filePath"
+          ) Show In Folder
 </template>
 
 <script lang="ts">
@@ -56,139 +41,214 @@ div
 
 import { Component, Vue } from 'vue-property-decorator';
 
-import { Button, ButtonGroup, Col, Row } from 'element-ui';
+import { Progress } from 'element-ui';
 
-interface File {
-  webContentsId: number;
-  name: string;
+import downloadsService from '../../../services/downloads';
+
+interface DownloadEntry {
+  id: string;
+  fileName: string;
   url: string;
-  totalBytes: number;
-  isPaused: boolean;
-  canResume: boolean;
-  startTime: Date;
-  state: string;
-  getReceivedBytes: number;
-  savePath: string;
+  filePath: string;
+  status: 'downloading' | 'completed' | 'interrupted';
+  progress: number;
+  timestamp: number;
 }
 
-interface Window extends Lulumi.API.GlobalObject {
+interface DownloadsWindow extends Lulumi.API.GlobalObject {
   ipcRenderer: Electron.IpcRenderer;
 }
 
-declare const window: Window;
+declare const window: DownloadsWindow;
 
 @Component({
   components: {
-    'el-button': Button,
-    'el-button-group': ButtonGroup,
-    'el-col': Col,
-    'el-row': Row,
+    'el-progress': Progress,
   },
 })
 export default class Downloads extends Vue {
-  files: File[] = [];
-  handler: any = null;
+  downloads: DownloadEntry[] = [];
+  storageListener: ((event: StorageEvent) => void) | null = null;
+  startListener: ((event: Electron.Event, payload: DownloadEntry) => void) | null = null;
+  progressListener: ((event: Electron.Event, payload: DownloadEntry) => void) | null = null;
+  completeListener: ((event: Electron.Event, payload: DownloadEntry) => void) | null = null;
 
-  fetch(): void {
-    this.handler = setInterval(
-      () => {
-        window.ipcRenderer.send('guest-want-data', 'downloads');
-      },
-      100
-    );
+  loadDownloads(): void {
+    this.downloads = downloadsService.getDownloads();
   }
-  clear(): void {
-    clearInterval(this.handler);
+
+  handleDownloadEvent(payload: DownloadEntry): void {
+    downloadsService.upsertDownload(payload);
+    this.downloads = downloadsService.getDownloads();
   }
-  percentage(file: File): number {
-    return Math.floor((file.getReceivedBytes / file.totalBytes) * 100);
+
+  clearAll(): void {
+    this.downloads = downloadsService.clearDownloads();
+    window.ipcRenderer.send('set-downloads', []);
   }
-  setDownloads(index: number): void {
-    if (index !== -1) {
-      this.$delete(this.files, 1);
-    } else {
-      this.files = this.files.filter(file => file.state === 'progressing');
+
+  formatTime(timestamp: number): string {
+    if (!timestamp) {
+      return '';
     }
-    window.ipcRenderer.send('set-downloads', this.files);
+
+    return new Date(timestamp).toLocaleString();
   }
-  showItemInFolder(savePath: string): void {
-    window.ipcRenderer.send('show-item-in-folder', savePath);
-  }
-  checkStateForProgress(state: string): string {
-    switch (state) {
-      case 'progressing':
-        return '';
-      case 'cancelled':
-      case 'interrupted':
-        return 'exception';
-      case 'completed':
-      default:
-        return 'success';
+
+  openFile(filePath: string): void {
+    if (filePath) {
+      window.ipcRenderer.send('open-path', filePath);
     }
   }
-  pauseDownload(startTime: Date): void {
-    window.ipcRenderer.send('pause-downloads-progress', startTime);
-  }
-  resumeDownload(startTime: Date): void {
-    window.ipcRenderer.send('resume-downloads-progress', startTime);
-  }
-  cancelDownload(startTime: Date): void {
-    window.ipcRenderer.send('cancel-downloads-progress', startTime);
+
+  showInFolder(filePath: string): void {
+    if (filePath) {
+      window.ipcRenderer.send('show-item-in-folder', filePath);
+    }
   }
 
   mounted(): void {
-    window.ipcRenderer.on('guest-here-your-data', (event, ret) => {
-      this.files = ret;
-    });
-    this.fetch();
+    this.loadDownloads();
+    this.startListener = (_event, payload) => {
+      this.handleDownloadEvent(payload);
+    };
+    this.progressListener = (_event, payload) => {
+      this.handleDownloadEvent(payload);
+    };
+    this.completeListener = (_event, payload) => {
+      this.handleDownloadEvent(payload);
+    };
+    window.ipcRenderer.on('download-started', this.startListener);
+    window.ipcRenderer.on('download-progress', this.progressListener);
+    window.ipcRenderer.on('download-completed', this.completeListener);
+    this.storageListener = (event: StorageEvent) => {
+      if (event.key === downloadsService.DOWNLOADS_KEY || event.key === null) {
+        this.loadDownloads();
+      }
+    };
+    (window as any).addEventListener('storage', this.storageListener);
   }
+
   beforeDestroy(): void {
-    this.clear();
-    window.ipcRenderer.removeAllListeners('guest-here-your-data');
+    if (this.startListener) {
+      window.ipcRenderer.removeListener('download-started', this.startListener);
+    }
+    if (this.progressListener) {
+      window.ipcRenderer.removeListener('download-progress', this.progressListener);
+    }
+    if (this.completeListener) {
+      window.ipcRenderer.removeListener('download-completed', this.completeListener);
+    }
+    if (this.storageListener) {
+      (window as any).removeEventListener('storage', this.storageListener);
+    }
   }
 }
 </script>
 
 <style scoped>
-.download-list {
-  margin-top: 10px;
-  padding: 0;
-  list-style: none;
+.downloads-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
-.download-list__item {
-  overflow: hidden;
-  background-color: #fff;
-  border: 1px solid #c0ccda;
-  border-radius: 6px;
-  box-sizing: border-box;
-  margin: 10px 2px;
-  padding: 5px 10px;
-  width: auto;
+
+.downloads-header {
   display: flex;
   align-items: center;
-  justify-content: space-around;
+  justify-content: space-between;
+  padding: 28px 32px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
 }
-a.download-list__item-link {
-  text-decoration: none;
+
+.downloads-title {
+  margin: 0;
+  font-size: 22px;
 }
-a.download-list__item-link:hover {
-  color: green;
+
+.clear-btn,
+.action-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
 }
-.download-list__item-name {
-  color: #48576a;
-  padding-left: 4px;
-  transition: color .3s;
-  flex: 5;
+
+.clear-btn:disabled,
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
-.download-list__item-name > i {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  height: 20px;
-  width: 400px;
-}
-.download-list__item-progress {
-  right: 0;
+
+.downloads-content {
   flex: 1;
+  padding: 20px 32px 40px;
+}
+
+.downloads-empty {
+  color: var(--text-secondary);
+}
+
+.downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.download-item {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+  padding: 16px;
+}
+
+.download-main {
+  min-width: 0;
+}
+
+.download-name {
+  font-weight: 600;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.download-url {
+  color: var(--text-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.download-meta {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.download-status.is-completed {
+  color: #22c55e;
+}
+
+.download-status.is-downloading {
+  color: var(--accent-color);
+}
+
+.download-status.is-interrupted {
+  color: #ef4444;
+}
+
+.download-progress {
+  margin-bottom: 12px;
+}
+
+.download-actions {
+  display: flex;
+  gap: 10px;
 }
 </style>

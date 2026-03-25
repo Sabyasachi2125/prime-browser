@@ -90,6 +90,13 @@
         webview.extension(:ref="`webview-${extension.extensionId}`",
                           allowpopups="")
   .common-group
+    a.downloads-btn(
+      id="browser-navbar__downloads"
+      @click="openDownloads"
+      :class="['enabled', { downloading: isDownloading }]"
+      title="Downloads"
+    )
+      iview-icon(type="md-download", size="18")
     a.history-btn(
       id="browser-navbar__history"
       @click="openHistory"
@@ -267,8 +274,14 @@ export default class Navbar extends Vue {
   suggestionIndicator = true;
   suggestionItems: Lulumi.Renderer.SuggestionItem[] = config.recommendTopSite;
   extensions: Lulumi.API.ManifestObject[] = [];
+  isDownloading = false;
+  activeDownloads: Set<string> = new Set();
   onbrowserActionClickedEvent: Event = new Event();
   onpageActionClickedEvent: Event = new Event();
+  downloadStartedListener:
+    ((event: Electron.Event, payload: { id: string }) => void) | null = null;
+  downloadCompletedListener:
+    ((event: Electron.Event, payload: { id: string }) => void) | null = null;
 
   windowId: number;
 
@@ -505,6 +518,16 @@ export default class Navbar extends Vue {
       'lulumi://about/#/history',
       true
     );
+  }
+  openDownloads(): void {
+    (this.$parent as BrowserMainView).onNewTab(
+      (this.$parent as BrowserMainView).windowId,
+      'lulumi://about/#/downloads',
+      true
+    );
+  }
+  syncDownloadIndicator(): void {
+    this.isDownloading = this.activeDownloads.size > 0;
   }
   onGoBackMouseDown(): void {
     this.handler =
@@ -1234,6 +1257,29 @@ export default class Navbar extends Vue {
     ipc.on('omnibox-ready', (): void => {
       // TODO: fix this
     });
+    this.downloadStartedListener = (_event, payload) => {
+      if (payload && payload.id) {
+        this.activeDownloads.add(payload.id);
+        this.syncDownloadIndicator();
+      }
+    };
+    this.downloadCompletedListener = (_event, payload) => {
+      if (payload && payload.id) {
+        this.activeDownloads.delete(payload.id);
+        this.syncDownloadIndicator();
+      }
+    };
+    ipc.on('download-started', this.downloadStartedListener);
+    ipc.on('download-completed', this.downloadCompletedListener);
+  }
+  beforeDestroy(): void {
+    const ipc = this.$electron.ipcRenderer;
+    if (this.downloadStartedListener) {
+      ipc.removeListener('download-started', this.downloadStartedListener);
+    }
+    if (this.downloadCompletedListener) {
+      ipc.removeListener('download-completed', this.downloadCompletedListener);
+    }
   }
 }
 </script>
@@ -1354,13 +1400,32 @@ export default class Navbar extends Vue {
       padding: 2px;
     }
 
-    .history-btn {
+    .history-btn,
+    .downloads-btn {
       padding: 2px 4px;
       opacity: 0.8;
       &:hover {
         opacity: 1;
       }
     }
+
+    .downloads-btn.downloading {
+      opacity: 1;
+      animation: download-pulse 0.9s ease-in-out infinite;
+      color: var(--accent-color);
+    }
+  }
+}
+
+@keyframes download-pulse {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.08);
+  }
+  100% {
+    transform: translateY(0) scale(1);
   }
 }
 

@@ -10,6 +10,7 @@ export default {
     const applyTheme = () => {
       const theme = localStorage.getItem('prime_browser_theme') || 'dark';
       document.documentElement.setAttribute('data-theme', theme);
+      document.body.setAttribute('data-theme', theme);
     };
     applyTheme();
     window.addEventListener('storage', (event) => {

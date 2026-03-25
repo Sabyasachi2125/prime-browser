@@ -69,6 +69,7 @@ import imageUtil from '../../lib/image-util';
 import ExtensionService from '../../api/extension-service';
 import Event from '../../api/event';
 
+import downloadsService from '../../services/downloads';
 import historyService from '../../services/history';
 
 interface AIResponse {
@@ -1022,6 +1023,53 @@ ${pageText}`;
         }
       }
     }
+  }
+  normalizeDownloadStatus(status: string): string {
+    switch (status) {
+      case 'completed':
+        return 'completed';
+      case 'interrupted':
+        return 'interrupted';
+      case 'downloading':
+      default:
+        return 'progressing';
+    }
+  }
+  updateDownloadsFromEvent(data: any): void {
+    downloadsService.upsertDownload(data);
+    this.syncDownloadsStore();
+    this.showDownloadBar = downloadsService.getDownloads()
+      .some(download => download.status === 'downloading');
+  }
+  syncDownloadsStore(): void {
+    const downloads = downloadsService.getDownloads().map((download) => {
+      const dataState = this.normalizeDownloadStatus(download.status);
+      return {
+        webContentsId: 0,
+        name: download.fileName,
+        url: download.url,
+        totalBytes: 100,
+        isPaused: false,
+        canResume: false,
+        startTime: download.timestamp,
+        state: dataState,
+        getReceivedBytes: download.progress,
+        savePath: download.filePath,
+        dataState,
+        style: '',
+      };
+    });
+
+    this.$store.dispatch('setDownloads', downloads);
+  }
+  onNativeDownloadStarted(_event: Electron.Event, data: any): void {
+    this.updateDownloadsFromEvent(data);
+  }
+  onNativeDownloadProgress(_event: Electron.Event, data: any): void {
+    this.updateDownloadsFromEvent(data);
+  }
+  onNativeDownloadCompleted(_event: Electron.Event, data: any): void {
+    this.updateDownloadsFromEvent(data);
   }
   onUpdateDownloadsProgress(event: Electron.Event, data: any): void {
     if (data.hostWebContentsId === this.windowWebContentsId) {
@@ -2382,6 +2430,15 @@ ${pageText}`;
     ipc.on('will-download-any-file', (event, data) => {
       this.onWillDownloadAnyFile(event, data);
     });
+    ipc.on('download-started', (event, data) => {
+      this.onNativeDownloadStarted(event, data);
+    });
+    ipc.on('download-progress', (event, data) => {
+      this.onNativeDownloadProgress(event, data);
+    });
+    ipc.on('download-completed', (event, data) => {
+      this.onNativeDownloadCompleted(event, data);
+    });
     ipc.on('update-downloads-progress', (event, data) => {
       this.onUpdateDownloadsProgress(event, data);
     });
@@ -2446,6 +2503,8 @@ ${pageText}`;
         }
       }
     });
+
+    this.syncDownloadsStore();
 
     // https://github.com/electron/electron/blob/master/docs/tutorial/online-offline-events.md
     this.summarizeShortcutHandler = (event: KeyboardEvent) => {

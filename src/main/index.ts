@@ -24,6 +24,7 @@ import {
   net,
   nativeImage,
   protocol,
+  session as electronSession,
   shell,
   screen,
   systemPreferences,
@@ -75,6 +76,126 @@ if (process.env.NODE_ENV === 'development') {
 
 const storagePath: string = path.join(app.getPath('userData'), 'lulumi-state');
 const langPath: string = path.join(app.getPath('userData'), 'lulumi-lang');
+const activeDownloads: Map<string, Electron.DownloadItem> = new Map();
+
+function generateDownloadId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function resolveDownloadStatus(state: string): 'downloading' | 'completed' | 'interrupted' {
+  if (state === 'completed') {
+    return 'completed';
+  }
+  if (state === 'progressing') {
+    return 'downloading';
+  }
+  return 'interrupted';
+}
+
+function getDownloadProgress(item: Electron.DownloadItem): number {
+  const totalBytes = item.getTotalBytes();
+  if (!totalBytes || totalBytes <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round((item.getReceivedBytes() / totalBytes) * 100)));
+}
+
+function getUniqueDownloadPath(directory: string, fileName: string): string {
+  const parsed = path.parse(fileName);
+  let candidatePath = path.join(directory, fileName);
+  let suffix = 1;
+
+  while (existsSync(candidatePath)) {
+    const nextName = `${parsed.name} (${suffix})${parsed.ext}`;
+    candidatePath = path.join(directory, nextName);
+    suffix += 1;
+  }
+
+  return candidatePath;
+}
+
+function broadcastDownloadEvent(channel: string, payload: Record<string, any>): void {
+  const { webContents } = require('electron');
+  webContents.getAllWebContents().forEach((contents) => {
+    const type = contents.getType();
+    if (contents.isDestroyed()) {
+      return;
+    }
+
+    if (type === 'window') {
+      contents.send(channel, payload);
+      return;
+    }
+
+    if (type === 'browserView') {
+      const targetUrl = contents.getURL();
+      const isInternalTarget =
+        targetUrl.startsWith('lulumi://') ||
+        targetUrl.includes('/about.html') ||
+        targetUrl.includes('/about/#/');
+
+      if (isInternalTarget) {
+        contents.send(channel, payload);
+      }
+    }
+  });
+}
+
+function registerNativeDownloadListener(): void {
+  const downloadSession = electronSession.fromPartition('persist:lulumi');
+
+  downloadSession.on('will-download', (_event, item) => {
+    const id = generateDownloadId();
+    const itemUrl = item.getURL();
+    const urlPath = (() => {
+      try {
+        return new URL(itemUrl).pathname;
+      } catch (error) {
+        return '';
+      }
+    })();
+    const fallbackName = path.basename(urlPath) || 'download';
+    const fileName = item.getFilename() || fallbackName;
+    const downloadDirectory = app.getPath('downloads');
+    const filePath = getUniqueDownloadPath(downloadDirectory, fileName);
+
+    item.setSavePath(filePath);
+    activeDownloads.set(id, item);
+
+    const basePayload = {
+      id,
+      fileName,
+      url: itemUrl,
+      filePath,
+      timestamp: Date.now(),
+    };
+
+    broadcastDownloadEvent('download-started', {
+      ...basePayload,
+      status: 'downloading',
+      progress: 0,
+    });
+
+    item.on('updated', (_updatedEvent, state) => {
+      const status = resolveDownloadStatus(state);
+      broadcastDownloadEvent('download-progress', {
+        ...basePayload,
+        status,
+        progress: getDownloadProgress(item),
+      });
+    });
+
+    item.on('done', (_doneEvent, state) => {
+      const status = resolveDownloadStatus(state);
+      broadcastDownloadEvent('download-completed', {
+        ...basePayload,
+        status,
+        progress: status === 'completed' ? 100 : getDownloadProgress(item),
+      });
+      activeDownloads.delete(id);
+    });
+  });
+}
 
 function getDefaultLang(): string {
   const countryCode = app.getLocaleCountryCode();
@@ -386,6 +507,7 @@ app.whenReady().then(() => {
 
   // session related operations
   session.onWillDownload(windows, constants.lulumiPDFJSPath);
+  registerNativeDownloadListener();
   session.setPermissionRequestHandler(windows);
   session.registerScheme(constants.lulumiPagesCustomProtocol);
   session.registerCertificateVerifyProc();

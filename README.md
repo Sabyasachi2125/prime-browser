@@ -196,3 +196,8 @@ Please note that this project is released with a [Contributor Code of Conduct](c
 ---
 
 This project was generated with [electron-vue](https://github.com/SimulatedGREG/electron-vue)@[1c165f7](https://github.com/SimulatedGREG/electron-vue/commit/1c165f7c5e56edaf48be0fbb70838a1af26bb015) and has been rebranded as Prime Browser.
+## ⚠️ Known Limitations
+
+- Google pages may not fully follow dark theme due to Chromium security restrictions
+- Some legacy Electron warnings may appear in dev console
+- Node.js version must be 16.x for stable execution
