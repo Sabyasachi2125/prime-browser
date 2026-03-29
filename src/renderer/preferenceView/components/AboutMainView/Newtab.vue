@@ -10,6 +10,15 @@
   .time-widget
     .widget-value {{ currentTime }}
     .widget-sub {{ currentDate }}
+    .theme-toggle-container
+      label.switch
+        input(
+          type="checkbox"
+          :checked="background === 'dark'"
+          @change="toggleBackground($event)"
+        )
+        span.slider
+      .theme-label {{ background }}
 
   .dashboard
     .logo-container(style="display: flex; justify-content: center; margin-bottom: 16px;")
@@ -49,15 +58,6 @@
           title="Edit subtitle"
           @click="startSubtitleEdit"
         ) &#9998;
-
-    .background-controls
-      button.small-btn(
-        type="button"
-        @click="showBackgroundOptions = !showBackgroundOptions"
-      ) Change Background
-      .background-options(v-if="showBackgroundOptions")
-        button.small-btn(type="button" @click="setBackground('light')") Light
-        button.small-btn(type="button" @click="setBackground('dark')") Dark
 
     .quick-access
       h2 Quick Access
@@ -258,6 +258,10 @@ export default Vue.extend({
       if ((window as any).api && (window as any).api.setTheme) {
         (window as any).api.setTheme(this.background);
       }
+    },
+    toggleBackground(e: Event): void {
+      const target = e.target as HTMLInputElement;
+      this.setBackground(target.checked ? 'dark' : 'light');
     },
     normalizedUrl(raw: string): string {
       const value = raw.trim();
@@ -632,12 +636,18 @@ body {
   margin-bottom: 24px;
 }
 
-.background-options {
-  margin-top: 8px;
+.theme-toggle-container {
   display: flex;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-top: 14px;
+  gap: 6px;
+}
+
+.theme-label {
+  font-size: 11px;
+  opacity: 0.8;
+  text-transform: capitalize;
 }
 
 .quick-access h2 {
@@ -785,5 +795,63 @@ body {
   .cards {
     grid-template-columns: 1fr;
   }
+}
+
+/* The switch - the box around the slider */
+.switch {
+  display: block;
+  --width-of-switch: 3.5em;
+  --height-of-switch: 2em;
+  /* size of sliding icon -- sun and moon */
+  --size-of-icon: 1.4em;
+  /* it is like a inline-padding of switch */
+  --slider-offset: 0.3em;
+  position: relative;
+  width: var(--width-of-switch);
+  height: var(--height-of-switch);
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #f4f4f5;
+  transition: .4s;
+  border-radius: 30px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: var(--size-of-icon,1.4em);
+  width: var(--size-of-icon,1.4em);
+  border-radius: 20px;
+  left: var(--slider-offset,0.3em);
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(40deg,#ff0080,#ff8c00 70%);
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #303136;
+}
+
+input:checked + .slider:before {
+  left: calc(100% - (var(--size-of-icon,1.4em) + var(--slider-offset,0.3em)));
+  background: #303136;
+  /* change second inset value to edit moon angle */
+  box-shadow: inset -3px -2px 5px -2px #8983f7, inset -10px -4px 0 0 #a3dafb;
 }
 </style>

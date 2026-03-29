@@ -237,6 +237,10 @@ Vue.component('SuggestionItem', {
   },
 });
 
+interface NavbarDownloadEntry {
+  status?: string;
+}
+
 @Component({
   directives: {
     sortable: {
@@ -252,6 +256,10 @@ Vue.component('SuggestionItem', {
     windowId: {
       type: Number,
       required: true,
+    },
+    downloads: {
+      type: Array,
+      default: () => [],
     },
   },
   components: {
@@ -274,16 +282,11 @@ export default class Navbar extends Vue {
   suggestionIndicator = true;
   suggestionItems: Lulumi.Renderer.SuggestionItem[] = config.recommendTopSite;
   extensions: Lulumi.API.ManifestObject[] = [];
-  isDownloading = false;
-  activeDownloads: Set<string> = new Set();
   onbrowserActionClickedEvent: Event = new Event();
   onpageActionClickedEvent: Event = new Event();
-  downloadStartedListener:
-    ((event: Electron.Event, payload: { id: string }) => void) | null = null;
-  downloadCompletedListener:
-    ((event: Electron.Event, payload: { id: string }) => void) | null = null;
 
-  windowId: number;
+  windowId = 0;
+  downloads: NavbarDownloadEntry[] = [];
 
   get logoUrl(): string {
     /* global __static */
@@ -331,6 +334,11 @@ export default class Navbar extends Vue {
   }
   get certificates(): Lulumi.Store.Certificates {
     return this.$store.getters.certificates;
+  }
+  get isDownloading(): boolean {
+    return this.downloads.some(
+      (download: NavbarDownloadEntry) => download.status === 'downloading'
+    );
   }
   get ensureInput(): boolean {
     if (document && this.$refs.input) {
@@ -525,9 +533,6 @@ export default class Navbar extends Vue {
       'lulumi://about/#/downloads',
       true
     );
-  }
-  syncDownloadIndicator(): void {
-    this.isDownloading = this.activeDownloads.size > 0;
   }
   onGoBackMouseDown(): void {
     this.handler =
@@ -1257,29 +1262,9 @@ export default class Navbar extends Vue {
     ipc.on('omnibox-ready', (): void => {
       // TODO: fix this
     });
-    this.downloadStartedListener = (_event, payload) => {
-      if (payload && payload.id) {
-        this.activeDownloads.add(payload.id);
-        this.syncDownloadIndicator();
-      }
-    };
-    this.downloadCompletedListener = (_event, payload) => {
-      if (payload && payload.id) {
-        this.activeDownloads.delete(payload.id);
-        this.syncDownloadIndicator();
-      }
-    };
-    ipc.on('download-started', this.downloadStartedListener);
-    ipc.on('download-completed', this.downloadCompletedListener);
   }
   beforeDestroy(): void {
-    const ipc = this.$electron.ipcRenderer;
-    if (this.downloadStartedListener) {
-      ipc.removeListener('download-started', this.downloadStartedListener);
-    }
-    if (this.downloadCompletedListener) {
-      ipc.removeListener('download-completed', this.downloadCompletedListener);
-    }
+    // Event listeners added here are tied to the renderer lifecycle.
   }
 }
 </script>
@@ -1404,15 +1389,36 @@ export default class Navbar extends Vue {
     .downloads-btn {
       padding: 2px 4px;
       opacity: 0.8;
+      position: relative;
+      border-radius: 999px;
+      transition: opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease;
       &:hover {
         opacity: 1;
       }
     }
 
+    .downloads-btn::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 999px;
+      border: 2px solid transparent;
+      opacity: 0;
+      transform: scale(0.92);
+      pointer-events: none;
+    }
+
     .downloads-btn.downloading {
       opacity: 1;
-      animation: download-pulse 0.9s ease-in-out infinite;
+      background: rgba(255, 153, 0, 0.1);
+      animation: download-pulse 1.05s ease-in-out infinite;
       color: var(--accent-color);
+    }
+
+    .downloads-btn.downloading::after {
+      border-color: rgba(255, 153, 0, 0.5);
+      opacity: 1;
+      animation: download-ring 1.4s ease-out infinite;
     }
   }
 }
@@ -1426,6 +1432,21 @@ export default class Navbar extends Vue {
   }
   100% {
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes download-ring {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.92);
+  }
+  70% {
+    opacity: 0.18;
+    transform: scale(1.22);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
   }
 }
 

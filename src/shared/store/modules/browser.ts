@@ -564,11 +564,19 @@ const mutations = {
       // assigning new indexes to tabs
       const tabs = stateContext.tabs.filter(tab => tab.windowId === windowId);
       for (let index = 0; index < tabs.length; index += 1) {
+        // tabsOrder[index] is a string positional key — guard against undefined
+        // when the order payload references a tab that no longer exists
+        const orderedTab = tabs[tabsOrder[index]];
+        if (!orderedTab) {
+          continue; // eslint-disable-line no-continue
+        }
         const tabsIndex: number =
           stateContext.tabs.findIndex(tab => (
-            tabs[tabsOrder[index]].id === tab.id
+            orderedTab.id === tab.id
           ));
-        Vue.set(stateContext.tabs[tabsIndex], 'index', index);
+        if (tabsIndex !== -1) {
+          Vue.set(stateContext.tabs[tabsIndex], 'index', index);
+        }
       }
     }
   },
@@ -610,12 +618,38 @@ const mutations = {
         download.startTime === payload.startTime
       ));
     if (index !== -1) {
-      const download = stateContext.downloads[index];
-      download.getReceivedBytes = payload.getReceivedBytes;
-      download.savePath = payload.savePath;
-      download.isPaused = payload.isPaused;
-      download.canResume = payload.canResume;
-      download.dataState = payload.dataState;
+      // JSON round-trip strips Vue's reactive Proxy wrappers from the existing
+      // object so the merged result is a plain serializable object. Without this,
+      // Object.assign copies reactive getters that Electron's structured-clone
+      // algorithm cannot serialize, causing "An object could not be cloned" IPC errors.
+      const existing = JSON.parse(JSON.stringify(stateContext.downloads[index])) as any;
+      const receivedBytes = payload.getReceivedBytes;
+      const incomingTotalBytes = payload.totalBytes;
+      const totalBytes = (typeof incomingTotalBytes === 'number' && incomingTotalBytes > 0)
+        ? Math.max(incomingTotalBytes, existing.totalBytes || 0)
+        : existing.totalBytes || 0;
+      // Compute progress only when totalBytes is known and > 0
+      let progress = existing.progress || 0;
+      if (typeof totalBytes === 'number' && totalBytes > 0 &&
+          typeof receivedBytes === 'number') {
+        progress = Math.min(
+          100,
+          Math.max(0, Math.round((receivedBytes / totalBytes) * 100)),
+        );
+      }
+
+      // Use splice for Vue reactivity — direct index assignment is NOT reactive
+      const updated = Object.assign({}, existing, {
+        getReceivedBytes: receivedBytes,
+        savePath: payload.savePath,
+        isPaused: payload.isPaused,
+        canResume: payload.canResume,
+        dataState: payload.dataState,
+        totalBytes,
+        speed: typeof payload.speed === 'number' ? payload.speed : existing.speed,
+        progress,
+      });
+      stateContext.downloads.splice(index, 1, updated);
     }
   },
   [types.COMPLETE_DOWNLOADS_PROGRESS](stateContext: Lulumi.Store.State, payload: any): void {

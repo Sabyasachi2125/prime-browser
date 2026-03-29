@@ -223,14 +223,16 @@ export const actions = {
       style,
     });
   },
-  updateDownloadsProgress({ commit }, { startTime, getReceivedBytes, savePath, isPaused, canResume, dataState }): void {
+  updateDownloadsProgress({ commit }, { startTime, getReceivedBytes, totalBytes, savePath, isPaused, canResume, dataState, speed }): void {
     commit(types.UPDATE_DOWNLOADS_PROGRESS, {
       startTime,
       getReceivedBytes,
+      totalBytes,
       savePath,
       isPaused,
       canResume,
       dataState,
+      speed,
     });
   },
   completeDownloadsProgress({ commit }, { name, startTime, dataState }): void {

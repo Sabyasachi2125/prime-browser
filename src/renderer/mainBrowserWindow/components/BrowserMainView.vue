@@ -2,7 +2,7 @@
 div
   #nav(ref="nav")
     tabs(ref="tabs", :windowId="windowId")
-    navbar(ref="navbar", :windowId="windowId")
+    navbar(ref="navbar", :windowId="windowId", :downloads="downloads")
   transition(name="notification")
     #notification(v-show="showNotification")
       notification(:windowWebContentsId="windowWebContentsId",
@@ -128,6 +128,7 @@ export default class BrowserMainView extends Vue {
   showSummary = false;
   isSummaryMinimized = false;
   isSummarizing = false;
+  downloads: any[] = [];
   extensionService: ExtensionService;
   contextMenus: any = {};
   summarizeShortcutHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -733,9 +734,10 @@ ${pageText}`;
           windowId: this.windowId,
         });
       } else {
-        this.$electron.remote.webContents.fromId(
-          view.webContents.id
-        ).downloadURL(parsedURL.query.src as string);
+        this.safeDownloadURL(
+          this.$electron.remote.webContents.fromId(view.webContents.id),
+          parsedURL.query.src as string
+        );
       }
     } else {
       this.$store.dispatch('domReady', {
@@ -874,6 +876,75 @@ ${pageText}`;
       }
     }
   }
+  serializeForIpc<T>(payload: T): T {
+    const seen = new WeakSet();
+    return JSON.parse(JSON.stringify(payload, (_key, value) => {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      if (typeof value === 'function' || typeof value === 'symbol') {
+        return undefined;
+      }
+      if (value && typeof value === 'object') {
+        if (seen.has(value)) {
+          return undefined;
+        }
+        seen.add(value);
+      }
+      return value;
+    })) as T;
+  }
+  sendGuestData(webContents: Electron.WebContents, payload: unknown): void {
+    try {
+      webContents.send('guest-here-your-data', this.serializeForIpc(payload));
+    } catch (error) {
+      // Some store-backed payloads may still include values Electron cannot clone.
+      console.error('Failed to send guest data over IPC.', error);
+    }
+  }
+  isPromiseLike(value: unknown): value is Promise<void> {
+    return typeof value === 'object' &&
+      value !== null &&
+      typeof (value as Promise<void>).catch === 'function';
+  }
+  isIgnorableWebContentsError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return error.message.includes('ERR_FAILED') || error.message.includes('ERR_ABORTED');
+  }
+  reportWebContentsError(action: 'loadURL' | 'downloadURL', error: unknown): void {
+    if (!this.isIgnorableWebContentsError(error)) {
+      console.error(`Failed to ${action}.`, error);
+    }
+  }
+  safeLoadURL(webContents: Electron.WebContents, targetURL: string): void {
+    try {
+      const maybePromise = webContents.loadURL(targetURL);
+      if (this.isPromiseLike(maybePromise)) {
+        maybePromise.catch((error) => {
+          this.reportWebContentsError('loadURL', error);
+        });
+      }
+    } catch (error) {
+      this.reportWebContentsError('loadURL', error);
+    }
+  }
+  safeDownloadURL(webContents: Electron.WebContents, targetURL: string): void {
+    try {
+      const maybePromise = (webContents as Electron.WebContents & {
+        downloadURL(url: string): void | Promise<void>;
+      }).downloadURL(targetURL);
+      if (this.isPromiseLike(maybePromise)) {
+        maybePromise.catch((error) => {
+          this.reportWebContentsError('downloadURL', error);
+        });
+      }
+    } catch (error) {
+      this.reportWebContentsError('downloadURL', error);
+    }
+  }
   onUpdateTargetUrl(event: Electron.UpdateTargetUrlEvent, tabIndex: number, tabId: number): void {
     this.$store.dispatch('updateTargetUrl', {
       tabId,
@@ -990,9 +1061,9 @@ ${pageText}`;
         if (currentWindow && this.windowId === currentWindow.id) {
           if (this.pdfViewer === 'pdf-viewer') {
             const parsedURL = urlPackage.parse(data.url, true);
-            webContents.downloadURL(`${parsedURL.query.file}?skip=true`);
+            this.safeDownloadURL(webContents, `${parsedURL.query.file}?skip=true`);
           } else {
-            webContents.loadURL(data.url);
+            this.safeLoadURL(webContents, data.url);
           }
         }
       }
@@ -1009,6 +1080,7 @@ ${pageText}`;
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
           this.showDownloadBar = true;
+          this.handleDownloadUpdate(data);
           this.$store.dispatch('createDownloadTask', {
             name: data.name,
             url: data.url,
@@ -1048,76 +1120,173 @@ ${pageText}`;
         webContentsId: 0,
         name: download.fileName,
         url: download.url,
-        totalBytes: 100,
+        totalBytes: download.totalBytes || 0,
         isPaused: false,
         canResume: false,
         startTime: download.timestamp,
         state: dataState,
-        getReceivedBytes: download.progress,
+        getReceivedBytes: download.receivedBytes || 0,
         savePath: download.filePath,
         dataState,
         style: '',
+        speed: download.speed,
       };
     });
 
     this.$store.dispatch('setDownloads', downloads);
   }
-  onNativeDownloadStarted(_event: Electron.Event, data: any): void {
-    this.updateDownloadsFromEvent(data);
+  getDownloadsSnapshot(): any[] {
+    return downloadsService.getDownloads().map((download) => {
+      const rawTimestamp = download.timestamp || Date.now();
+      const timestamp = rawTimestamp < 1000000000000 ? rawTimestamp * 1000 : rawTimestamp;
+
+      return {
+        id: download.id || String(timestamp),
+        fileName: download.fileName || 'Unknown',
+        url: download.url || '',
+        filePath: download.filePath || '',
+        status: download.status || 'downloading',
+        progress: typeof download.progress === 'number' ? download.progress : 0,
+        speed: typeof download.speed === 'number' ? download.speed : 0,
+        totalBytes: typeof download.totalBytes === 'number' ? download.totalBytes : 0,
+        getReceivedBytes: typeof download.receivedBytes === 'number' ? download.receivedBytes : 0,
+        timestamp,
+      };
+    }).filter(download => download.fileName !== 'Unknown');
   }
-  onNativeDownloadProgress(_event: Electron.Event, data: any): void {
-    this.updateDownloadsFromEvent(data);
+  applyDownloadsSnapshot(downloads: any[]): void {
+    downloadsService.clearDownloads();
+    downloads.forEach((download) => {
+      downloadsService.upsertDownload(download);
+    });
+    this.downloads = downloadsService.getDownloads();
+    this.syncDownloadsStore();
+    this.showDownloadBar = this.downloads.some(download => download.status === 'downloading');
   }
-  onNativeDownloadCompleted(_event: Electron.Event, data: any): void {
-    this.updateDownloadsFromEvent(data);
+  handleDownloadUpdate(download: any): void {
+    const id = download.id || (
+      download.startTime
+        ? String(download.startTime)
+        : `${download.name || download.fileName || 'download'}-${Date.now()}`
+    );
+    const fileName = download.fileName || download.name || 'Unknown';
+    const url = download.url || '';
+    const filePath = download.filePath || download.savePath || '';
+    let status = download.status || download.dataState || download.state || 'downloading';
+    if (status !== 'completed' && status !== 'interrupted') {
+      status = 'downloading';
+    }
+
+    let progress = 0;
+    if (typeof download.progress === 'number') {
+      progress = download.progress;
+    } else if (typeof download.getReceivedBytes === 'number' &&
+      typeof download.totalBytes === 'number' &&
+      download.totalBytes > 0) {
+      const ratio = download.getReceivedBytes / download.totalBytes;
+      progress = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+    }
+    if (status === 'completed') {
+      progress = 100;
+    }
+
+    const rawTimestamp = download.timestamp || download.startTime || Date.now();
+    const normalizedTimestamp =
+      rawTimestamp < 1000000000000 ? rawTimestamp * 1000 : rawTimestamp;
+
+    const entry = {
+      id,
+      fileName,
+      url,
+      filePath,
+      status,
+      progress,
+      speed: typeof download.speed === 'number' ? download.speed : 0,
+      totalBytes: typeof download.totalBytes === 'number' ? download.totalBytes : 0,
+      getReceivedBytes:
+        typeof download.getReceivedBytes === 'number' ? download.getReceivedBytes : 0,
+      timestamp: normalizedTimestamp,
+    };
+    downloadsService.upsertDownload(entry);
+    this.downloads = [...downloadsService.getDownloads()];
+    this.syncDownloadsStore();
+    this.showDownloadBar = this.downloads.some(d => d.status === 'downloading');
   }
   onUpdateDownloadsProgress(event: Electron.Event, data: any): void {
-    if (data.hostWebContentsId === this.windowWebContentsId) {
-      this.$store.dispatch('updateDownloadsProgress', {
-        startTime: data.startTime,
-        getReceivedBytes: data.getReceivedBytes,
-        savePath: data.savePath,
-        isPaused: data.isPaused,
-        canResume: data.canResume,
-        dataState: data.dataState,
-      });
-    }
+    const payload = {
+      id: String(data.startTime),
+      name: data.name,
+      url: data.url || '',
+      savePath: data.savePath,
+      filePath: data.filePath || data.savePath,
+      startTime: data.startTime,
+      getReceivedBytes: data.getReceivedBytes,
+      totalBytes: data.totalBytes,
+      isPaused: data.isPaused,
+      canResume: data.canResume,
+      dataState: data.dataState,
+      speed: data.speed,
+      timestamp: data.timestamp,
+    };
+    this.handleDownloadUpdate(payload);
+    this.$store.dispatch('updateDownloadsProgress', {
+      startTime: data.startTime,
+      getReceivedBytes: data.getReceivedBytes,
+      totalBytes: data.totalBytes,
+      savePath: data.savePath,
+      isPaused: data.isPaused,
+      canResume: data.canResume,
+      dataState: data.dataState,
+      speed: data.speed,
+    });
   }
   onCompleteDownloadsProgress(event: Electron.Event, data: any): void {
-    if (data.hostWebContentsId === this.windowWebContentsId) {
-      this.$store.dispatch('completeDownloadsProgress', {
-        name: data.name,
-        startTime: data.startTime,
-        dataState: data.dataState,
-      });
-      const completedDownload =
-        this.$store.getters.downloads.filter(download => download.startTime === data.startTime);
-      if (completedDownload.length) {
-        let option: any;
-        if (data.dataState === 'completed') {
-          option = {
-            title: 'Success',
-            body: `${data.name} download successfully!`,
-          };
-        } else if (data.dataState === 'cancelled') {
-          option = {
-            title: 'Cancelled',
-            body: `${data.name} has been cancelled!`,
-          };
-        } else {
-          option = {
-            title: 'Success',
-            body: `${data.name} download successfully!`,
-          };
-        }
-        // eslint-disable-next-line no-new
-        new (window as any).Notification(option.title, option);
+    const payload = {
+      id: String(data.startTime),
+      name: data.name,
+      url: data.url || '',
+      savePath: data.savePath,
+      filePath: data.filePath || data.savePath,
+      startTime: data.startTime,
+      getReceivedBytes: data.getReceivedBytes,
+      totalBytes: data.totalBytes,
+      dataState: data.dataState,
+      speed: data.speed,
+      timestamp: data.timestamp,
+    };
+    this.handleDownloadUpdate(payload);
+    this.$store.dispatch('completeDownloadsProgress', {
+      name: data.name,
+      startTime: data.startTime,
+      dataState: data.dataState,
+    });
+    const completedDownload =
+      this.$store.getters.downloads.filter(download => download.startTime === data.startTime);
+    if (completedDownload.length) {
+      let option: any;
+      if (data.dataState === 'completed') {
+        option = {
+          title: 'Success',
+          body: `${data.name} download successfully!`,
+        };
+      } else if (data.dataState === 'cancelled') {
+        option = {
+          title: 'Cancelled',
+          body: `${data.name} has been cancelled!`,
+        };
       } else {
-        this.showDownloadBar =
-          this.$store.getters.downloads.every(download => download.style === 'hidden')
-            ? false
-            : this.showDownloadBar;
+        option = {
+          title: 'Interrupted',
+          body: `${data.name} download interrupted!`,
+        };
       }
+      // eslint-disable-next-line no-new
+      new (window as any).Notification(option.title, option);
+    } else {
+      this.showDownloadBar =
+        this.$store.getters.downloads.every(download => download.style === 'hidden')
+          ? false
+          : this.showDownloadBar;
     }
   }
   onCloseDownloadBar(): void {
@@ -1264,7 +1433,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', {
+          this.sendGuestData(webContents, {
             searchEngine: this.$store.getters.searchEngine,
             currentSearchEngine: this.$store.getters.currentSearchEngine,
             autoFetch: this.$store.getters.autoFetch,
@@ -1283,7 +1452,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', {
+          this.sendGuestData(webContents, {
             homepage: this.$store.getters.homepage,
           });
         }
@@ -1300,7 +1469,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', {
+          this.sendGuestData(webContents, {
             pdfViewer: this.$store.getters.pdfViewer,
           });
         }
@@ -1317,7 +1486,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', this.$store.getters.tabConfig);
+          this.sendGuestData(webContents, this.$store.getters.tabConfig);
         }
       }
     }
@@ -1332,7 +1501,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', {
+          this.sendGuestData(webContents, {
             lang: this.$store.getters.lang,
           });
         }
@@ -1349,7 +1518,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', this.$store.getters.proxyConfig);
+          this.sendGuestData(webContents, this.$store.getters.proxyConfig);
         }
       }
     }
@@ -1364,7 +1533,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', this.$store.getters.auth);
+          this.sendGuestData(webContents, this.$store.getters.auth);
         }
       }
     }
@@ -1379,7 +1548,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', this.$store.getters.downloads);
+          this.sendGuestData(webContents, this.getDownloadsSnapshot());
         }
       }
     }
@@ -1394,7 +1563,7 @@ ${pageText}`;
         const currentWindow: Electron.BrowserWindow | null =
           this.$electron.remote.BrowserWindow.fromBrowserView(browserView);
         if (currentWindow && this.windowId === currentWindow.id) {
-          webContents.send('guest-here-your-data', this.$store.getters.history);
+          this.sendGuestData(webContents, this.$store.getters.history);
         }
       }
     }
@@ -2030,7 +2199,6 @@ ${pageText}`;
         menu.append(new MenuItem({
           label: this.$t('webview.contextMenu.saveImageAs') as string,
           click: async () => {
-            const fs = require('fs');
             const electron = this.$electron;
             const filename = await urlUtil.getFilenameFromUrl(params.srcURL);
             const defaultPath = path.join(electron.remote.app.getPath('downloads'), filename);
@@ -2046,11 +2214,13 @@ ${pageText}`;
                 ],
               },
             );
-            if (!result.canceled) {
-              const dataURL = await imageUtil.getBase64FromImageUrl(params.srcURL);
-              fs.writeFileSync(
-                result.filePath, electron.nativeImage.createFromDataURL(dataURL).toPNG()
-              );
+            if (!result.canceled && result.filePath) {
+              this.$electron.ipcRenderer.send('register-download-path', {
+                savePath: result.filePath,
+                url: params.srcURL,
+                webContentsId: view.webContents.id,
+              });
+              this.safeDownloadURL(view.webContents, params.srcURL);
             }
           },
         }));
@@ -2430,15 +2600,6 @@ ${pageText}`;
     ipc.on('will-download-any-file', (event, data) => {
       this.onWillDownloadAnyFile(event, data);
     });
-    ipc.on('download-started', (event, data) => {
-      this.onNativeDownloadStarted(event, data);
-    });
-    ipc.on('download-progress', (event, data) => {
-      this.onNativeDownloadProgress(event, data);
-    });
-    ipc.on('download-completed', (event, data) => {
-      this.onNativeDownloadCompleted(event, data);
-    });
     ipc.on('update-downloads-progress', (event, data) => {
       this.onUpdateDownloadsProgress(event, data);
     });
@@ -2469,6 +2630,11 @@ ${pageText}`;
     });
     ipc.on('get-downloads', (event: Electron.Event, webContentsId: number) => {
       this.onGetDownloads(event, webContentsId);
+    });
+    ipc.on('apply-downloads', (_event: Electron.Event, downloads: any[]) => {
+      if (Array.isArray(downloads)) {
+        this.applyDownloadsSnapshot(downloads);
+      }
     });
     ipc.on('get-history', (event: Electron.Event, webContentsId: number) => {
       this.onGetHistory(event, webContentsId);
@@ -2505,6 +2671,20 @@ ${pageText}`;
     });
 
     this.syncDownloadsStore();
+
+    // Initialize downloads state
+    this.downloads = downloadsService.getDownloads();
+
+    // Add IPC listeners for download events
+    ipc.on('download-started', (event, data) => {
+      this.handleDownloadUpdate(data);
+    });
+    ipc.on('download-progress', (event, data) => {
+      this.handleDownloadUpdate(data);
+    });
+    ipc.on('download-completed', (event, data) => {
+      this.handleDownloadUpdate(data);
+    });
 
     // https://github.com/electron/electron/blob/master/docs/tutorial/online-offline-events.md
     this.summarizeShortcutHandler = (event: KeyboardEvent) => {

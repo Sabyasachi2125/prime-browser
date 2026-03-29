@@ -55,7 +55,7 @@ export default class View {
     this.window = window;
 
     this.webContents.addListener('did-start-loading', (event) => {
-      this.window.webContents.send('browser-view-did-start-loading', {
+      this.sendToWindow('browser-view-did-start-loading', {
         event: {},
         eventName: 'onDidStartLoading',
         tabId: this.tabId,
@@ -64,7 +64,7 @@ export default class View {
     });
     // eslint-disable-next-line no-shadow
     this.webContents.addListener('did-navigate', (event, url) => {
-      this.window.webContents.send('browser-view-did-navigate', {
+      this.sendToWindow('browser-view-did-navigate', {
         event: { url },
         eventName: 'onDidNavigate',
         tabId: this.tabId,
@@ -72,7 +72,7 @@ export default class View {
       });
     });
     this.webContents.addListener('page-title-updated', (event, title) => {
-      this.window.webContents.send('browser-view-page-title-updated', {
+      this.sendToWindow('browser-view-page-title-updated', {
         event: { title },
         eventName: 'onPageTitleUpdated',
         tabId: this.tabId,
@@ -80,7 +80,7 @@ export default class View {
       });
     });
     this.webContents.addListener('dom-ready', (event) => {
-      this.window.webContents.send('browser-view-dom-ready', {
+      this.sendToWindow('browser-view-dom-ready', {
         event: {},
         eventName: 'onDomReady',
         tabId: this.tabId,
@@ -88,7 +88,7 @@ export default class View {
       });
     });
     this.webContents.addListener('did-frame-finish-load', (event, isMainFrame) => {
-      this.window.webContents.send('browser-view-did-frame-finish-load', {
+      this.sendToWindow('browser-view-did-frame-finish-load', {
         event: { isMainFrame },
         eventName: 'onDidFrameFinishLoad',
         tabId: this.tabId,
@@ -96,7 +96,7 @@ export default class View {
       });
     });
     this.webContents.addListener('page-favicon-updated', (event, favicons) => {
-      this.window.webContents.send('browser-view-page-favicon-updated', {
+      this.sendToWindow('browser-view-page-favicon-updated', {
         event: { favicons },
         eventName: 'onPageFaviconUpdated',
         tabId: this.tabId,
@@ -104,7 +104,7 @@ export default class View {
       });
     });
     this.webContents.addListener('did-stop-loading', (event) => {
-      this.window.webContents.send('browser-view-did-stop-loading', {
+      this.sendToWindow('browser-view-did-stop-loading', {
         event: {},
         eventName: 'onDidStopLoading',
         tabId: this.tabId,
@@ -113,7 +113,7 @@ export default class View {
     });
     // eslint-disable-next-line max-len
     this.webContents.addListener('did-fail-load', (event, errorCode, _, validatedURL, isMainFrame) => {
-      this.window.webContents.send('browser-view-did-fail-load', {
+      this.sendToWindow('browser-view-did-fail-load', {
         event: { errorCode, validatedURL, isMainFrame, url: this.window.webContents.getURL() },
         eventName: 'onDidFailLoad',
         tabId: this.tabId,
@@ -121,7 +121,7 @@ export default class View {
       });
     });
     this.webContents.addListener('ipc-message', (event, channel) => {
-      this.window.webContents.send('browser-view-ipc-message', {
+      this.sendToWindow('browser-view-ipc-message', {
         event: { channel },
         eventName: 'onIpcMessage',
         tabId: this.tabId,
@@ -130,7 +130,7 @@ export default class View {
     });
     // eslint-disable-next-line no-shadow
     this.webContents.addListener('update-target-url', (event, url) => {
-      this.window.webContents.send('browser-view-update-target-url', {
+      this.sendToWindow('browser-view-update-target-url', {
         event: { url },
         eventName: 'onUpdateTargetUrl',
         tabId: this.tabId,
@@ -138,7 +138,7 @@ export default class View {
       });
     });
     this.webContents.addListener('media-started-playing', (event) => {
-      this.window.webContents.send('browser-view-media-started-playing', {
+      this.sendToWindow('browser-view-media-started-playing', {
         event: {},
         eventName: 'onMediaStartedPlaying',
         tabId: this.tabId,
@@ -146,7 +146,7 @@ export default class View {
       });
     });
     this.webContents.addListener('media-paused', (event) => {
-      this.window.webContents.send('browser-view-media-paused', {
+      this.sendToWindow('browser-view-media-paused', {
         event: {},
         eventName: 'onMediaPaused',
         tabId: this.tabId,
@@ -154,7 +154,7 @@ export default class View {
       });
     });
     this.webContents.addListener('enter-html-full-screen', (event) => {
-      this.window.webContents.send('browser-view-enter-html-full-screen', {
+      this.sendToWindow('browser-view-enter-html-full-screen', {
         event: {},
         eventName: 'onEnterHtmlFullScreen',
         tabId: this.tabId,
@@ -162,7 +162,7 @@ export default class View {
       });
     });
     this.webContents.addListener('leave-html-full-screen', (event) => {
-      this.window.webContents.send('browser-view-leave-html-full-screen', {
+      this.sendToWindow('browser-view-leave-html-full-screen', {
         event: {},
         eventName: 'onLeaveHtmlFullScreen',
         tabId: this.tabId,
@@ -170,7 +170,7 @@ export default class View {
       });
     });
     this.webContents.addListener('new-window', (event) => {
-      this.window.webContents.send('browser-view-new-window', {
+      this.sendToWindow('browser-view-new-window', {
         event: {},
         eventName: 'onNewWindow',
         tabId: this.tabId,
@@ -186,11 +186,11 @@ export default class View {
 
       if (isSummarizeShortcut) {
         event.preventDefault();
-        this.window.webContents.send('summarize-page');
+        this.sendToWindow('summarize-page');
       }
     });
     this.webContents.addListener('context-menu', (event, params) => {
-      this.window.webContents.send('browser-view-context-menu', {
+      this.sendToWindow('browser-view-context-menu', {
         event: { params },
         eventName: 'onContextMenu',
         tabId: this.tabId,
@@ -199,7 +199,7 @@ export default class View {
     });
     // eslint-disable-next-line no-shadow
     this.webContents.addListener('will-navigate', (event, url) => {
-      this.window.webContents.send('browser-view-will-navigate', {
+      this.sendToWindow('browser-view-will-navigate', {
         event: { url },
         eventName: 'onWillNavigate',
         tabId: this.tabId,
@@ -215,7 +215,7 @@ export default class View {
     });
     this.browserView.setBackgroundColor('#00000000');
     this.fitWindow();
-    this.webContents.loadURL(urlUtil.getUrlFromInput(url));
+    this.safeLoadURL(urlUtil.getUrlFromInput(url));
   }
 
   public get id(): number {
@@ -227,11 +227,30 @@ export default class View {
   }
 
   public async fitWindow(): Promise<void> {
+    if (
+      this.window.isDestroyed() ||
+      this.webContents.isDestroyed() ||
+      this.browserView.isDestroyed()
+    ) {
+      return;
+    }
+
     const { width } = this.window.getContentBounds();
-    const height = await this.window.webContents
-      .executeJavaScript(`
+    let height = 0;
+    try {
+      height = await this.window.webContents.executeJavaScript(`
         document.getElementById("app").offsetHeight;
       `);
+    } catch (error) {
+      if (!this.isIgnorableWebContentsError(error)) {
+        console.error('Failed to resize browser view.', error);
+      }
+      return;
+    }
+
+    if (this.browserView.isDestroyed()) {
+      return;
+    }
 
     this.browserView.setBounds({
       x: 0,
@@ -256,5 +275,55 @@ export default class View {
         fs.writeFileSync(this.preloadCachePath, result.body);
       }
     });
+  }
+
+  private sendToWindow(channel: string, payload?: unknown): void {
+    if (this.window.isDestroyed() || this.window.webContents.isDestroyed()) {
+      return;
+    }
+
+    try {
+      if (typeof payload === 'undefined') {
+        this.window.webContents.send(channel);
+      } else {
+        this.window.webContents.send(channel, payload);
+      }
+    } catch (error) {
+      if (!this.isIgnorableWebContentsError(error)) {
+        console.error(`Failed to send "${channel}" to window.`, error);
+      }
+    }
+  }
+
+  private safeLoadURL(targetURL: string): void {
+    try {
+      const maybePromise = this.webContents.loadURL(targetURL);
+      if (this.isPromiseLike(maybePromise)) {
+        maybePromise.catch((error) => {
+          if (!this.isIgnorableWebContentsError(error)) {
+            console.error(`Failed to load URL: ${targetURL}`, error);
+          }
+        });
+      }
+    } catch (error) {
+      if (!this.isIgnorableWebContentsError(error)) {
+        console.error(`Failed to load URL: ${targetURL}`, error);
+      }
+    }
+  }
+
+  private isPromiseLike(value: unknown): value is Promise<void> {
+    return typeof value === 'object' &&
+      value !== null &&
+      typeof (value as Promise<void>).catch === 'function';
+  }
+
+  private isIgnorableWebContentsError(error: unknown): boolean {
+    return error instanceof Error &&
+      (
+        error.message.includes('ERR_FAILED') ||
+        error.message.includes('ERR_ABORTED') ||
+        error.message.includes('Object has been destroyed')
+      );
   }
 }

@@ -2,7 +2,7 @@
 /* eslint-disable no-console */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
-import { BrowserWindow, ipcMain, session } from 'electron';
+import { BrowserView, BrowserWindow, ipcMain, session } from 'electron';
 import * as forge from 'node-forge';
 import { customAlphabet } from 'nanoid';
 
@@ -11,6 +11,17 @@ import mainStore from '../../shared/store/mainStore';
 ipcMain.setMaxListeners(0);
 
 const generateRequestId = customAlphabet('1234567890', 32);
+const pendingDownloadPaths: Array<{
+  savePath: string;
+  url: string;
+  webContentsId: number;
+}> = [];
+
+const downloadMetricsById: Map<string, {
+  lastReceivedBytes: number;
+  lastTimestampMs: number;
+  speed: number;
+}> = new Map();
 
 const register = (eventName: any, sess: Electron.Session, eventLispCaseName: string, id: number, digest: string, filter): void => {
   if ((eventName === 'onBeforeRequest') || (eventName === 'onBeforeSendHeaders')) {
@@ -270,9 +281,195 @@ const registerCertificateVerifyProc: () => void = () => {
   });
 };
 
+const normalizeDownloadStatus = (state: string): 'downloading' | 'completed' | 'interrupted' => {
+  switch (state) {
+    case 'completed':
+      return 'completed';
+    case 'interrupted':
+    case 'cancelled':
+      return 'interrupted';
+    default:
+      return 'downloading';
+  }
+};
+
+const normalizeDownloadDataState = (state: string): string => {
+  switch (state) {
+    case 'completed':
+      return 'completed';
+    case 'cancelled':
+      return 'cancelled';
+    case 'interrupted':
+      return 'interrupted';
+    default:
+      return 'progressing';
+  }
+};
+
+const getDownloadOwnerWebContentsId = (webContents: Electron.WebContents): number => {
+  const { hostWebContents } = (webContents as Electron.WebContents & {
+    hostWebContents?: Electron.WebContents;
+  });
+
+  return hostWebContents ? hostWebContents.id : webContents.id;
+};
+
+const createDownloadPayload = (
+  item: Electron.DownloadItem,
+  webContents: Electron.WebContents,
+  state: string,
+): Record<string, number | string | boolean> => {
+  const downloadItemWithSpeed = item as Electron.DownloadItem & {
+    getCurrentBytesPerSecond?: () => number;
+  };
+  const id = String(item.getStartTime());
+  const currentTimestampMs = Date.now();
+  const receivedBytes = item.getReceivedBytes();
+  const totalBytes = item.getTotalBytes();
+  const electronSpeed = downloadItemWithSpeed.getCurrentBytesPerSecond
+    ? downloadItemWithSpeed.getCurrentBytesPerSecond()
+    : 0;
+  const previousMetrics = downloadMetricsById.get(id);
+  let computedSpeed = Number.isFinite(electronSpeed) && electronSpeed > 0 ? electronSpeed : 0;
+
+  if (previousMetrics) {
+    const elapsedMs = currentTimestampMs - previousMetrics.lastTimestampMs;
+    const deltaBytes = receivedBytes - previousMetrics.lastReceivedBytes;
+    if (computedSpeed <= 0 && elapsedMs > 0 && deltaBytes >= 0) {
+      computedSpeed = Math.round((deltaBytes * 1000) / elapsedMs);
+    }
+  }
+
+  downloadMetricsById.set(id, {
+    lastReceivedBytes: receivedBytes,
+    lastTimestampMs: currentTimestampMs,
+    speed: computedSpeed,
+  });
+
+  // Compute progress (0–100). Only meaningful when totalBytes > 0.
+  const progress = totalBytes > 0
+    ? Math.min(100, Math.max(0, Math.round((receivedBytes / totalBytes) * 100)))
+    : 0;
+  const normalizedState = normalizeDownloadStatus(state);
+
+  return {
+    id,
+    webContentsId: webContents.id,
+    hostWebContentsId: getDownloadOwnerWebContentsId(webContents),
+    startTime: item.getStartTime(),
+    totalBytes,
+    getReceivedBytes: receivedBytes,
+    receivedBytes,
+    progress,
+    savePath: item.getSavePath() || '',
+    filePath: item.getSavePath() || '',
+    isPaused: item.isPaused(),
+    canResume: item.canResume(),
+    name: item.getFilename(),
+    fileName: item.getFilename(),
+    url: item.getURL(),
+    speed: computedSpeed,
+    status: normalizedState,
+    dataState: normalizeDownloadDataState(state),
+    timestamp: item.getStartTime(),
+  };
+};
+
+const getDownloadTargetWebContentsList = (
+  webContents: Electron.WebContents,
+): Electron.WebContents[] => {
+  const targets: Electron.WebContents[] = [];
+  const seen = new Set<number>();
+  const pushTarget = (target: Electron.WebContents | null | undefined): void => {
+    if (!target || target.isDestroyed() || seen.has(target.id)) {
+      return;
+    }
+
+    seen.add(target.id);
+    targets.push(target);
+  };
+
+  const browserView = BrowserView.fromWebContents(webContents);
+  if (browserView) {
+    const ownerWindow = BrowserWindow.fromBrowserView(browserView);
+    if (ownerWindow) {
+      pushTarget(ownerWindow.webContents);
+
+      const browserViews = ownerWindow.getBrowserViews
+        ? ownerWindow.getBrowserViews()
+        : [];
+
+      browserViews.forEach((view) => {
+        pushTarget(view.webContents);
+      });
+    }
+  }
+
+  const { hostWebContents } = (webContents as Electron.WebContents & {
+    hostWebContents?: Electron.WebContents;
+  });
+
+  pushTarget(hostWebContents);
+  pushTarget(webContents);
+
+  return targets;
+};
+
+const sendDownloadEvent = (
+  targets: Electron.WebContents[],
+  channel: string,
+  payload: Record<string, number | string | boolean>,
+): void => {
+  if (targets.length === 0) {
+    return;
+  }
+
+  targets.forEach((target) => {
+    target.send(channel, payload);
+  });
+};
+
+const consumePendingDownloadPath = (
+  item: Electron.DownloadItem,
+  webContents: Electron.WebContents,
+): string | null => {
+  const index = pendingDownloadPaths.findIndex(entry => (
+    entry.webContentsId === webContents.id &&
+    entry.url === item.getURL()
+  ));
+
+  if (index === -1) {
+    return null;
+  }
+
+  const [{ savePath }] = pendingDownloadPaths.splice(index, 1);
+  return savePath;
+};
+
+ipcMain.on(
+  'register-download-path',
+  (_event: Electron.Event, data: { savePath: string; url: string; webContentsId: number }) => {
+    if (!data || !data.savePath || !data.url || typeof data.webContentsId !== 'number') {
+      return;
+    }
+
+    pendingDownloadPaths.push({
+      savePath: data.savePath,
+      url: data.url,
+      webContentsId: data.webContentsId,
+    });
+  }
+);
+
 const onWillDownload = (windows: any, path: string): void => {
-  const sess = session.fromPartition('persist:lulumi') as Electron.Session;
-  sess.on('will-download', (event, item, webContents) => {
+  const sessions = [
+    session.defaultSession,
+    session.fromPartition('persist:lulumi'),
+  ].filter((sess, index, list): sess is Electron.Session => (
+    Boolean(sess) && list.indexOf(sess) === index
+  ));
+
+  sessions.forEach(sess => sess.on('will-download', (event, item, webContents) => {
     const itemURL = item.getURL();
     if (item.getMimeType() === 'application/pdf' &&
       itemURL.indexOf('blob:') !== 0 &&
@@ -291,72 +488,53 @@ const onWillDownload = (windows: any, path: string): void => {
         });
       });
     } else {
-      const totalBytes = item.getTotalBytes();
-      const startTime = item.getStartTime();
-      Object.keys(windows).forEach((key) => {
-        const id = parseInt(key, 10);
-        const window = windows[id];
-        window.webContents.send('will-download-any-file', {
-          totalBytes,
-          startTime,
-          webContentsId: webContents.id,
-          name: item.getFilename(),
-          url: item.getURL(),
-          isPaused: item.isPaused(),
-          canResume: item.canResume(),
-          dataState: 'init',
-        });
-      });
+      const pendingSavePath = consumePendingDownloadPath(item, webContents);
+      if (pendingSavePath) {
+        item.setSavePath(pendingSavePath);
+      }
 
-      ipcMain.on('pause-downloads-progress', (event2: Electron.Event, remoteStartTime: number) => {
+      const targetWebContentsList = getDownloadTargetWebContentsList(webContents);
+      const startTime = item.getStartTime();
+      const pauseDownload = (_event2: Electron.Event, remoteStartTime: number) => {
         if (startTime === remoteStartTime) {
           item.pause();
         }
-      });
-      ipcMain.on('resume-downloads-progress', (event2: Electron.Event, remoteStartTime: number) => {
+      };
+      const resumeDownload = (_event2: Electron.Event, remoteStartTime: number) => {
         if (startTime === remoteStartTime) {
           item.resume();
         }
-      });
-      ipcMain.on('cancel-downloads-progress', (event2: Electron.Event, remoteStartTime: number) => {
+      };
+      const cancelDownload = (_event2: Electron.Event, remoteStartTime: number) => {
         if (startTime === remoteStartTime) {
           item.cancel();
         }
+      };
+      const startPayload = createDownloadPayload(item, webContents, 'progressing');
+      sendDownloadEvent(targetWebContentsList, 'will-download-any-file', startPayload);
+      sendDownloadEvent(targetWebContentsList, 'download-started', startPayload);
+
+      ipcMain.on('pause-downloads-progress', pauseDownload);
+      ipcMain.on('resume-downloads-progress', resumeDownload);
+      ipcMain.on('cancel-downloads-progress', cancelDownload);
+
+      item.on('updated', (_event2: Electron.Event, state: string) => {
+        const payload = createDownloadPayload(item, webContents, state);
+        sendDownloadEvent(targetWebContentsList, 'update-downloads-progress', payload);
+        sendDownloadEvent(targetWebContentsList, 'download-progress', payload);
       });
 
-      item.on('updated', (event2: Electron.Event, state: string) => {
-        Object.keys(windows).forEach((key) => {
-          const id = parseInt(key, 10);
-          const window = windows[id];
-          window.webContents.send('update-downloads-progress', {
-            hostWebContentsId: webContents.hostWebContents.id,
-            startTime: item.getStartTime(),
-            getReceivedBytes: item.getReceivedBytes(),
-            savePath: item.getSavePath(),
-            isPaused: item.isPaused(),
-            canResume: item.canResume(),
-            dataState: state,
-          });
-        });
-      });
-
-      item.on('done', (event2: Electron.Event, state: string) => {
-        ipcMain.removeAllListeners('pause-downloads-progress');
-        ipcMain.removeAllListeners('resume-downloads-progress');
-        ipcMain.removeAllListeners('cancel-downloads-progress');
-        Object.keys(windows).forEach((key) => {
-          const id = parseInt(key, 10);
-          const window = windows[id];
-          window.webContents.send('complete-downloads-progress', {
-            hostWebContentsId: webContents.hostWebContents.id,
-            name: item.getFilename(),
-            startTime: item.getStartTime(),
-            dataState: state,
-          });
-        });
+      item.on('done', (_event2: Electron.Event, state: string) => {
+        ipcMain.removeListener('pause-downloads-progress', pauseDownload);
+        ipcMain.removeListener('resume-downloads-progress', resumeDownload);
+        ipcMain.removeListener('cancel-downloads-progress', cancelDownload);
+        const payload = createDownloadPayload(item, webContents, state);
+        downloadMetricsById.delete(String(item.getStartTime()));
+        sendDownloadEvent(targetWebContentsList, 'complete-downloads-progress', payload);
+        sendDownloadEvent(targetWebContentsList, 'download-completed', payload);
       });
     }
-  });
+  }));
 };
 
 const setPermissionRequestHandler = (windows: any): void => {

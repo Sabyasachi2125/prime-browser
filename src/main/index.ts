@@ -24,7 +24,6 @@ import {
   net,
   nativeImage,
   protocol,
-  session as electronSession,
   shell,
   screen,
   systemPreferences,
@@ -49,6 +48,38 @@ dotenv.config({
 const isTesting = process.env.NODE_ENV === 'test';
 const startTime = new Date().getTime();
 const globalObject = global as unknown as Lulumi.API.GlobalObject;
+
+// Suppress Chromium network errors (ERR_FAILED, ERR_ABORTED) that surface as
+// unhandled rejections or uncaught exceptions from SimpleURLLoaderWrapper —
+// these are benign navigation failures (e.g. loading a download page that
+// returns a non-200 and triggers a file download instead).
+const isIgnorableNetworkError = (reason: unknown): boolean => {
+  if (!(reason instanceof Error)) {
+    return false;
+  }
+  return (
+    reason.message.includes('ERR_FAILED') ||
+    reason.message.includes('ERR_ABORTED') ||
+    reason.message.includes('net::') ||
+    reason.message.includes('Object has been destroyed')
+  );
+};
+
+process.on('unhandledRejection', (reason) => {
+  if (isIgnorableNetworkError(reason)) {
+    return;
+  }
+  console.error('[unhandledRejection]', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  if (isIgnorableNetworkError(error)) {
+    return;
+  }
+  console.error('[uncaughtException]', error);
+  // Do NOT re-throw — re-throwing would still invoke the default Electron
+  // fatal-error dialog for non-network errors.
+});
 
 /*
  * Set `__static` path to static files in production
@@ -76,126 +107,6 @@ if (process.env.NODE_ENV === 'development') {
 
 const storagePath: string = path.join(app.getPath('userData'), 'lulumi-state');
 const langPath: string = path.join(app.getPath('userData'), 'lulumi-lang');
-const activeDownloads: Map<string, Electron.DownloadItem> = new Map();
-
-function generateDownloadId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function resolveDownloadStatus(state: string): 'downloading' | 'completed' | 'interrupted' {
-  if (state === 'completed') {
-    return 'completed';
-  }
-  if (state === 'progressing') {
-    return 'downloading';
-  }
-  return 'interrupted';
-}
-
-function getDownloadProgress(item: Electron.DownloadItem): number {
-  const totalBytes = item.getTotalBytes();
-  if (!totalBytes || totalBytes <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Math.round((item.getReceivedBytes() / totalBytes) * 100)));
-}
-
-function getUniqueDownloadPath(directory: string, fileName: string): string {
-  const parsed = path.parse(fileName);
-  let candidatePath = path.join(directory, fileName);
-  let suffix = 1;
-
-  while (existsSync(candidatePath)) {
-    const nextName = `${parsed.name} (${suffix})${parsed.ext}`;
-    candidatePath = path.join(directory, nextName);
-    suffix += 1;
-  }
-
-  return candidatePath;
-}
-
-function broadcastDownloadEvent(channel: string, payload: Record<string, any>): void {
-  const { webContents } = require('electron');
-  webContents.getAllWebContents().forEach((contents) => {
-    const type = contents.getType();
-    if (contents.isDestroyed()) {
-      return;
-    }
-
-    if (type === 'window') {
-      contents.send(channel, payload);
-      return;
-    }
-
-    if (type === 'browserView') {
-      const targetUrl = contents.getURL();
-      const isInternalTarget =
-        targetUrl.startsWith('lulumi://') ||
-        targetUrl.includes('/about.html') ||
-        targetUrl.includes('/about/#/');
-
-      if (isInternalTarget) {
-        contents.send(channel, payload);
-      }
-    }
-  });
-}
-
-function registerNativeDownloadListener(): void {
-  const downloadSession = electronSession.fromPartition('persist:lulumi');
-
-  downloadSession.on('will-download', (_event, item) => {
-    const id = generateDownloadId();
-    const itemUrl = item.getURL();
-    const urlPath = (() => {
-      try {
-        return new URL(itemUrl).pathname;
-      } catch (error) {
-        return '';
-      }
-    })();
-    const fallbackName = path.basename(urlPath) || 'download';
-    const fileName = item.getFilename() || fallbackName;
-    const downloadDirectory = app.getPath('downloads');
-    const filePath = getUniqueDownloadPath(downloadDirectory, fileName);
-
-    item.setSavePath(filePath);
-    activeDownloads.set(id, item);
-
-    const basePayload = {
-      id,
-      fileName,
-      url: itemUrl,
-      filePath,
-      timestamp: Date.now(),
-    };
-
-    broadcastDownloadEvent('download-started', {
-      ...basePayload,
-      status: 'downloading',
-      progress: 0,
-    });
-
-    item.on('updated', (_updatedEvent, state) => {
-      const status = resolveDownloadStatus(state);
-      broadcastDownloadEvent('download-progress', {
-        ...basePayload,
-        status,
-        progress: getDownloadProgress(item),
-      });
-    });
-
-    item.on('done', (_doneEvent, state) => {
-      const status = resolveDownloadStatus(state);
-      broadcastDownloadEvent('download-completed', {
-        ...basePayload,
-        status,
-        progress: status === 'completed' ? 100 : getDownloadProgress(item),
-      });
-      activeDownloads.delete(id);
-    });
-  });
-}
 
 function getDefaultLang(): string {
   const countryCode = app.getLocaleCountryCode();
@@ -400,7 +311,21 @@ function createWindow(options?: Electron.BrowserWindowConstructorOptions, callba
     }));
   }
 
-  mainWindow.loadURL(winURL);
+  try {
+    const maybeLoadPromise = mainWindow.loadURL(winURL);
+    if (maybeLoadPromise && typeof maybeLoadPromise.catch === 'function') {
+      maybeLoadPromise.catch((err: Error) => {
+        if (!err.message.includes('ERR_FAILED') && !err.message.includes('ERR_ABORTED')) {
+          console.error('(lulumi-browser) mainWindow.loadURL failed:', err);
+        }
+      });
+    }
+  } catch (loadErr) {
+    const e = loadErr as Error;
+    if (!e.message.includes('ERR_FAILED') && !e.message.includes('ERR_ABORTED')) {
+      console.error('(lulumi-browser) mainWindow.loadURL threw:', loadErr);
+    }
+  }
   mainWindow.webContents.once('dom-ready', () => {
     console.log('Main renderer loaded. Preload should now expose window.api');
   });
@@ -507,7 +432,6 @@ app.whenReady().then(() => {
 
   // session related operations
   session.onWillDownload(windows, constants.lulumiPDFJSPath);
-  registerNativeDownloadListener();
   session.setPermissionRequestHandler(windows);
   session.registerScheme(constants.lulumiPagesCustomProtocol);
   session.registerCertificateVerifyProc();
@@ -1217,6 +1141,7 @@ ipcMain.on('set-downloads', (event: Electron.IpcMainEvent, val) => {
   Object.keys(windows).forEach((key) => {
     const id = parseInt(key, 10);
     const window = windows[id];
+    window.webContents.send('apply-downloads', val);
     window.webContents.send('get-downloads', event.sender.id);
   });
 });
