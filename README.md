@@ -2,9 +2,7 @@
 
 > Prime Browser is a lightweight browser built with Vue.js 2 and Electron.
 
-<p align="center">
-  <img alt="Prime Browser" src="https://i.imgur.com/5mO19u7.jpg" width="700px">
-</p>
+
 
 Prime Browser is an Electron-Vue browser project focused on a lightweight desktop browsing experience with a customizable new tab dashboard.
 
@@ -20,6 +18,12 @@ This repository currently contains the working prototype with the features added
 - cleaned development startup flow compared to the earlier broken state
 
 If the current changes are pushed to GitHub together with `package.json`, `yarn.lock`, and the source files under `src/` and `.electron-vue/`, then this working prototype is preserved safely in the repo. If the current local folder is lost or crashes later, cloning the repo and reinstalling dependencies should restore this same working state.
+## ✅ Version 1.0 Features
+- Custom Electron-based browser
+- Dark/Light theme (orange accent)
+- Browsing history
+- Download manager (with UI + progress)
+- AI summary feature
 
 ## Recommended Environment
 
